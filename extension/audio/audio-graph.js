@@ -2,28 +2,28 @@
 
 // 音声グラフの生成をここに集約する。
 // createMediaElementSource() は同じ要素に1回しか呼べないので、接続済みの要素を WeakMap で管理する。
-// ディレイ拡張と統合するときも、video 要素への接続は必ずこのモジュールを経由させる。
+// video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   source ─┬─┬─ RNNoise ─ nrWet ─┬─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
-//           │ └─────────── nrDry ─┘                                 │
-//           └──────────────────────────────────────────────── dry ─┘
-// RNNoise のノードは、ノイズキャンセルを初めて有効にしたときに作る。
-// 読み込めなかったときは nrDry 側（素通し）のままにする。
+//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
+//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤                                 │
+//           │ └──────────────────────── nrDry ───┘                                 │
+//           └──────────────────────────────────────────────────────────── dry ───┘
+// ノイズキャンセルのノードは、その方式を初めて使うときに作る。
+// 準備中や作れなかったときは nrDry 側（素通し）にする。
 const AudioGraph = (() => {
   // パラメータを変えるときの時定数（秒）。値を急に変えるとプツッというノイズが出る
   const RAMP = 0.02;
-  // RNNoise は 48kHz 前提なので、AudioContext を 48kHz で作る（メディアの音声はブラウザが変換する）
+  // RNNoise も DeepFilterNet3 も 48kHz 前提なので、AudioContext を 48kHz で作る（メディアの音声はブラウザが変換する）
   const SAMPLE_RATE = 48000;
-  // RNNoise のワークレットは WASM を非同期に初期化し、それまでは無音を出す。
-  // ノードを作った直後に切り替えると音が途切れるので、この秒数だけ待ってから nrWet に切り替える
-  const DENOISER_WARMUP = 0.15;
   const RNNOISE_DIR = 'vendor/web-noise-suppressor/';
   const RNNOISE_PROCESSOR = '@sapphi-red/web-noise-suppressor/rnnoise';
+  const DEEPFILTERNET_DIR = 'vendor/deepfilternet/';
 
   let ctx = null;
   let running = null;
   let rnnoise = null; // Promise<ArrayBuffer | null>: RNNoise の WASM。読み込めなかったら null
+  let deepfilternet = null; // Promise<module | null>: DeepFilterNet3 のモジュール。読み込めなかったら null
   let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
   const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
@@ -77,12 +77,9 @@ const AudioGraph = (() => {
     return rnnoise;
   }
 
-  async function ensureDenoiser(g) {
-    if (g.denoiserRequested) return;
-    g.denoiserRequested = true;
-    const c = g.source.context;
+  async function createRnnoise(c, source) {
     const wasmBinary = await loadRnnoise(c);
-    if (!wasmBinary) return;
+    if (!wasmBinary) return null;
     // RNNoise はチャンネルごとに処理し、maxChannels を超えたチャンネルは無音になるので、入力をステレオにそろえる
     const node = new AudioWorkletNode(c, RNNOISE_PROCESSOR, {
       channelCount: 2,
@@ -90,11 +87,64 @@ const AudioGraph = (() => {
       channelInterpretation: 'speakers',
       processorOptions: { wasmBinary, maxChannels: 2 },
     });
-    g.source.connect(node).connect(g.nrWet);
-    g.denoiser = node;
-    g.denoiseFrom = c.currentTime + DENOISER_WARMUP;
+    source.connect(node);
+    return node;
+  }
+
+  // DeepFilterNet3 は、パッケージの createDeepFilterNetAudioWorklet() で作る。
+  // ES モジュールなので動的 import で読み込む（content script は静的 import を使えない）。
+  // 入力はモノラルにまとめて処理され、出力もモノラルになる（EQ に入るところで左右に広がる）
+  async function createDeepFilterNet(c, source) {
+    deepfilternet ??= import(chrome.runtime.getURL(DEEPFILTERNET_DIR + 'deepfilternet.js')).catch((e) => {
+      console.warn('[audio-fx] DeepFilterNet3 を読み込めませんでした', e);
+      return null;
+    });
+    const module = await deepfilternet;
+    if (!module) return null;
+    let worklet = null;
+    try {
+      // モジュールは既定ではワークレット・WASM・モデルの URL を import.meta.url から作るが、それは拡張の固定 URL になり、
+      // use_dynamic_url を有効にしているとページから取得できない。getURL の動的 URL を明示的に渡す
+      const url = (file) => chrome.runtime.getURL(DEEPFILTERNET_DIR + file);
+      worklet = await module.createDeepFilterNetAudioWorklet(c, {
+        moduleUrl: url('assets/deepfilternet-worklet-processor.js'),
+        wasmUrl: url('assets/deepfilternet/df_bg.wasm'),
+        modelUrl: url('assets/deepfilternet/DeepFilterNet3_onnx.tar.gz'),
+        onOverload: (load) => console.warn('[audio-fx] DeepFilterNet3 の処理が間に合っていません', load),
+      });
+      // 準備ができるまでは入力をそのまま出す（bypassUntilReady）。準備ができてから出力に切り替える
+      source.connect(worklet.node);
+      await worklet.ready;
+      return worklet.node;
+    } catch (e) {
+      worklet?.dispose();
+      console.warn('[audio-fx] DeepFilterNet3 を使えませんでした', e);
+      return null;
+    }
+  }
+
+  // ノイズキャンセルの方式ごとの作り方。create(c, source) は、source につないで使える状態にしたノードを返す（失敗なら null）。
+  // warmup は、ノードができてから出力に切り替えるまでに待つ秒数。
+  // RNNoise のワークレットは WASM を非同期に初期化し、それまでは無音を出すので少し待つ
+  const ENGINES = {
+    rnnoise: { create: createRnnoise, warmup: 0.15 },
+    deepfilternet: { create: createDeepFilterNet, warmup: 0 },
+  };
+
+  async function ensureEngine(g, name) {
+    if (g.engines[name]) return;
+    const c = g.source.context;
+    const engine = { node: null, wet: c.createGain(), from: 0 };
+    engine.wet.gain.value = 0;
+    engine.wet.connect(g.filters[0]);
+    g.engines[name] = engine;
+    const node = await ENGINES[name].create(c, g.source);
+    if (!node) return;
+    node.connect(engine.wet);
+    engine.node = node;
+    engine.from = c.currentTime + ENGINES[name].warmup;
     apply(g, true);
-    console.info('[audio-fx] ノイズキャンセルを準備しました');
+    console.info(`[audio-fx] ノイズキャンセル（${name}）を準備しました`);
   }
 
   function build(c, source) {
@@ -105,13 +155,11 @@ const AudioGraph = (() => {
       if (b.q) f.Q.value = b.q;
       return f;
     });
-    const nrWet = c.createGain();
     const nrDry = c.createGain();
     const wet = c.createGain();
     const dry = c.createGain();
     const output = c.createGain();
     source.connect(nrDry);
-    nrWet.connect(filters[0]);
     nrDry.connect(filters[0]);
     // connect() は接続先を返すので、reduce で直列につなげる
     filters.reduce((from, to) => from.connect(to)).connect(wet);
@@ -119,10 +167,8 @@ const AudioGraph = (() => {
     source.connect(dry);
     dry.connect(output);
     output.connect(c.destination);
-    return {
-      source, nrWet, nrDry, filters, wet, dry, output,
-      denoiser: null, denoiserRequested: false, denoiseFrom: 0,
-    };
+    // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null
+    return { source, nrDry, filters, wet, dry, output, engines: {} };
   }
 
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
@@ -132,13 +178,15 @@ const AudioGraph = (() => {
       if (ramp) param.setTargetAtTime(v, Math.max(now, from), RAMP);
       else param.value = v;
     };
-    const denoise = settings.denoise && g.denoiser !== null;
+    // 使うノイズキャンセル。準備中や作れなかったときは null で、nrDry 側（素通し）にする
+    const active = settings.denoise ? g.engines[settings.engine] : undefined;
+    const using = active?.node ? active : null;
     g.filters.forEach((f, i) => set(f.gain, settings.gains[i]));
-    set(g.nrWet.gain, denoise ? 1 : 0, g.denoiseFrom);
-    set(g.nrDry.gain, denoise ? 0 : 1, g.denoiseFrom);
+    for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
+    set(g.nrDry.gain, using ? 0 : 1, using?.from);
     set(g.wet.gain, settings.enabled ? 1 : 0);
     set(g.dry.gain, settings.enabled ? 0 : 1);
-    if (settings.denoise) ensureDenoiser(g);
+    if (settings.denoise) ensureEngine(g, settings.engine);
   }
 
   async function connect(video) {

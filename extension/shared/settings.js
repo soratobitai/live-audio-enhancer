@@ -13,9 +13,12 @@ const Settings = (() => {
   ]);
   const GAIN_RANGE = 12; // ±dB
 
-  // ノイズキャンセル（RNNoise）は声向けで、音楽の音質を落とすことがあるので既定ではオフにする
+  // ノイズキャンセルの方式。RNNoise は軽くて遅延が小さく、DeepFilterNet3 は抑え方が強いが重くて遅延が大きい
+  const ENGINES = Object.freeze(['rnnoise', 'deepfilternet']);
+
+  // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする
   function defaults() {
-    return { enabled: true, denoise: false, gains: BANDS.map(() => 0) };
+    return { enabled: true, denoise: false, engine: 'rnnoise', gains: BANDS.map(() => 0) };
   }
 
   // 保存値が欠けていたり帯域数が変わっていたりしても使えるように、既定値に重ねる
@@ -26,6 +29,7 @@ const Settings = (() => {
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
+      engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
       gains: d.gains.map((g, i) => (Number.isFinite(v.gains?.[i]) ? clamp(v.gains[i]) : g)),
     };
   }
@@ -45,5 +49,5 @@ const Settings = (() => {
     });
   }
 
-  return { BANDS, GAIN_RANGE, defaults, load, save, onChange };
+  return { BANDS, GAIN_RANGE, ENGINES, defaults, load, save, onChange };
 })();

@@ -21,11 +21,12 @@ const TOLERANCE_DB = 1.5;
 
 // ポップアップで順に設定し、それぞれ測定する
 const SCENARIOS = [
-  { name: 'EQ 有効', enabled: true, denoise: false, gains: [-6, 0, 4, -3] },
-  { name: 'EQ 無効（バイパス）', enabled: false, denoise: false, gains: [-6, 0, 4, -3] },
-  { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, denoise: false, gains: [3, -4, 0, 2] },
-  { name: 'ノイズキャンセル有効', enabled: true, denoise: true, gains: [0, 0, 0, 0] },
-  { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, gains: [-6, 0, 4, -3] },
+  { name: 'EQ 有効', enabled: true, denoise: false, engine: 'rnnoise', gains: [-6, 0, 4, -3] },
+  { name: 'EQ 無効（バイパス）', enabled: false, denoise: false, engine: 'rnnoise', gains: [-6, 0, 4, -3] },
+  { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, denoise: false, engine: 'rnnoise', gains: [3, -4, 0, 2] },
+  { name: 'ノイズキャンセル有効（RNNoise）', enabled: true, denoise: true, engine: 'rnnoise', gains: [0, 0, 0, 0] },
+  { name: 'ノイズキャンセル有効（DeepFilterNet3）', enabled: true, denoise: true, engine: 'deepfilternet', gains: [0, 0, 0, 0] },
+  { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, engine: 'deepfilternet', gains: [-6, 0, 4, -3] },
 ];
 
 // サイトごとの配信の探し方。list のページを開き、links で配信ページの URL を集める
@@ -82,8 +83,9 @@ const INSTALL_PROBE = `(async () => {
       f.getFrequencyResponse(freqs, mag, phase);
       mag.forEach((m, i) => { wetDb[i] += 20 * Math.log10(m); });
     }
+    const denoising = Object.values(g.engines).some((e) => e.wet.gain.value > 0.5);
     const expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
-      : g.nrWet.gain.value > 0.5 ? probes.map(() => null)
+      : denoising ? probes.map(() => null)
       : wetDb;
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
@@ -117,8 +119,8 @@ const INSTALL_PROBE = `(async () => {
       peak, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
       params: {
         gains: g.filters.map((f) => f.gain.value),
-        wet: g.wet.gain.value, dry: g.dry.gain.value, nrWet: g.nrWet.gain.value, nrDry: g.nrDry.gain.value,
-        denoiser: g.denoiser ? g.denoiser.constructor.name : null,
+        wet: g.wet.gain.value, dry: g.dry.gain.value, nrDry: g.nrDry.gain.value,
+        engines: Object.fromEntries(Object.entries(g.engines).map(([k, e]) => [k, { ready: !!e.node, wet: e.wet.gain.value }])),
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -139,17 +141,19 @@ async function findBroadcasts(browser, site) {
 }
 
 // ポップアップのスライダーとスイッチを、ユーザーが操作したときと同じイベントで動かす
-async function setPopup(popup, { enabled, denoise, gains }) {
-  await popup.evaluate((enabled, denoise, gains) => {
+async function setPopup(popup, { enabled, denoise, engine, gains }) {
+  await popup.evaluate((enabled, denoise, engine, gains) => {
     document.querySelectorAll('.band input').forEach((input, i) => {
       input.value = gains[i];
       input.dispatchEvent(new Event('input'));
     });
+    const radio = document.querySelector(`input[name="engine"][value="${engine}"]`);
+    if (!radio.checked) radio.click();
     for (const [id, on] of [['denoise', denoise], ['enabled', enabled]]) {
       const sw = document.getElementById(id);
       if (sw.checked !== on) sw.click();
     }
-  }, enabled, denoise, gains);
+  }, enabled, denoise, engine, gains);
 }
 
 async function check(browser, extId, url) {
@@ -217,9 +221,9 @@ async function check(browser, extId, url) {
     for (const s of SCENARIOS) {
       await setPopup(popup, s);
       // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す。
-      // ノイズキャンセルを初めて有効にしたときは、WASM の読み込みと切り替えの待ちがあるので長めに待つ
+      // ノイズキャンセルを初めて有効にしたときは、WASM・モデルの読み込みと切り替えの待ちがあるので長めに待つ
       await page.bringToFront();
-      await sleep(1000);
+      await sleep(2000);
       runs.push({ scenario: s, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
@@ -241,10 +245,11 @@ function judgeRun({ scenario, m }) {
   if (!near(p.wet, scenario.enabled ? 1 : 0, 0.01) || !near(p.dry, scenario.enabled ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
-  if (scenario.denoise && !p.denoiser) return { ok: false, reason: 'RNNoise のノードがない' };
-  if (!near(p.nrWet, scenario.denoise ? 1 : 0, 0.01) || !near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) {
-    return { ok: false, reason: 'nrWet / nrDry のゲインが設定と違う' };
+  if (scenario.denoise && !p.engines[scenario.engine]?.ready) return { ok: false, reason: `${scenario.engine} のノードがない` };
+  for (const [name, e] of Object.entries(p.engines)) {
+    if (!near(e.wet, scenario.denoise && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
   }
+  if (!near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) return { ok: false, reason: 'nrDry のゲインが設定と違う' };
   const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
   if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
     return { ok: false, reason: `周波数特性が期待値と ${TOLERANCE_DB}dB 以上ずれている` };
@@ -273,9 +278,12 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? 'ON' : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);
-    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${m.inRmsDb.toFixed(1)} → 出口 ${m.outRmsDb.toFixed(1)} dBFS`);
-    console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrWet ${p.nrWet.toFixed(2)} nrDry ${p.nrDry.toFixed(2)}　RNNoise ${p.denoiser ?? 'なし'}`);
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);
+    // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
+    const db = (x) => (x === null ? '-∞' : x.toFixed(1));
+    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS`);
+    const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
+    console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log('    出口 − 入口（入口は最も強い成分との差。−50dB 未満の帯域は測定しない）:');
     for (const b of m.bands) {
       console.log(`      ${String(b.hz).padStart(5)}Hz  期待 ${f(b.expectedDb)}dB  実測 ${f(b.measuredDb)}dB  入口 ${f(b.inputDb === null ? null : b.inputDb - m.topDb)}dB`);

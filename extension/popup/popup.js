@@ -2,6 +2,8 @@
 
 const enabledInput = document.getElementById('enabled');
 const denoiseInput = document.getElementById('denoise');
+const denoiseSection = document.querySelector('.denoise');
+const engineInputs = document.querySelectorAll('input[name="engine"]');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
 
@@ -48,6 +50,8 @@ function buildBands() {
 function render(controls) {
   enabledInput.checked = state.enabled;
   denoiseInput.checked = state.denoise;
+  denoiseSection.classList.toggle('on', state.denoise);
+  for (const input of engineInputs) input.checked = input.value === state.engine;
   document.body.classList.toggle('off', !state.enabled);
   controls.forEach(({ input, value }, i) => {
     input.value = state.gains[i];
@@ -67,8 +71,15 @@ function render(controls) {
   });
   denoiseInput.addEventListener('change', () => {
     state.denoise = denoiseInput.checked;
+    render(controls);
     Settings.save(state);
   });
+  for (const input of engineInputs) {
+    input.addEventListener('change', () => {
+      state.engine = input.value;
+      Settings.save(state);
+    });
+  }
   resetButton.addEventListener('click', () => {
     state.gains = Settings.defaults().gains;
     render(controls);

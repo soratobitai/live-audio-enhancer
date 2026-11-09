@@ -6,7 +6,7 @@
     "verify:nico": "node tools/verify.js nico",
     "verify:kick": "node tools/verify.js kick",
     "verify:youtube": "node tools/verify.js youtube",
-    "vendor": "node tools/vendor-rnnoise.js"
+    "vendor": "node tools/vendor.js"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "0.4.1",

@@ -13,13 +13,25 @@
       <input type="checkbox" role="switch" id="enabled">
     </label>
   </header>
-  <label class="switch option">
-    <span>
-      ノイズキャンセル
-      <small>声以外の音を抑えます。音楽は音質が落ちることがあります</small>
-    </span>
-    <input type="checkbox" role="switch" id="denoise">
-  </label>
+  <section class="denoise">
+    <label class="switch option">
+      <span>
+        ノイズキャンセル
+        <small>声以外の音を抑えます。音楽は音質が落ちることがあります</small>
+      </span>
+      <input type="checkbox" role="switch" id="denoise">
+    </label>
+    <div class="engines" role="radiogroup" aria-label="ノイズキャンセルの方式">
+      <label>
+        <input type="radio" name="engine" value="rnnoise">
+        <span>RNNoise<small>軽い・遅延 約13ms</small></span>
+      </label>
+      <label>
+        <input type="radio" name="engine" value="deepfilternet">
+        <span>DeepFilterNet3<small>強力・遅延 約71ms</small></span>
+      </label>
+    </div>
+  </section>
   <section id="bands" aria-label="イコライザー"></section>
   <footer>
     <span class="hint">つまみをダブルクリックで 0 dB</span>
