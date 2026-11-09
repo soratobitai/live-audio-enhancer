@@ -1,6 +1,6 @@
 # ライブ配信音声エフェクト Chrome拡張 引き継ぎメモ
 
-最終更新：2026-11-09（拡張 v0.5.0、ステップ5まで完了）
+最終更新：2026-11-09（拡張 v0.6.0）
 
 ## 目的
 
@@ -20,13 +20,25 @@
 | 3 | content scriptからAudioWorkletを読み込めるかの検証 | 完了 |
 | 4 | RNNoiseによるノイズキャンセル | 完了 |
 | 5 | Kickの検証と対応（方式Bは不要だった） | 完了 |
+| 6 | ノイズキャンセルにDeepFilterNet3を追加し、RNNoiseと選べるようにする | 完了 |
+| 7 | 使わなくなったノイズキャンセルの方式を止める | 完了 |
 
 ディレイ拡張との同時動作の確認（当初のステップ6）は、対象外になった。
+
+### 予定
+
+- イコライザーを10バンドに細かくし、高音を上・低音を下に並べる
+- 音量をそろえる機能（大きい音を抑え、小さい音を持ち上げる。コンプレッサー）
+- オートEQ（番組の音に合わせて自動で補正する。実現方法を検討中）
+- ストアにある似た拡張の調査
 
 ### 使い方
 
 - `chrome://extensions`でデベロッパーモードをオンにし、「パッケージ化されていない拡張機能を読み込む」で`extension/`フォルダを選ぶ
-- 拡張アイコンのポップアップで、全体のON/OFF、ノイズキャンセルのON/OFF、EQ 4バンドのゲイン（±12dB）を変える
+- 拡張アイコンのポップアップで、次の設定を変える
+  - 全体のON/OFF
+  - ノイズキャンセルのON/OFFと方式（RNNoise / DeepFilterNet3）
+  - EQ 4バンドのゲイン（±12dB）
 - 自動再生でページを一度もクリックしていないときは、クリックした時点でエフェクトがかかる
 
 ### ディレクトリ構成
@@ -39,10 +51,12 @@ audio-fx/
 │  ├─ audio/audio-graph.js     音声グラフの生成（video要素への接続はここだけで行う）
 │  ├─ content/main.js          再生開始を拾って接続する
 │  ├─ popup/                   ポップアップのUI
-│  └─ vendor/web-noise-suppressor/   RNNoiseのワークレットとWASM、ライセンス文
+│  └─ vendor/
+│     ├─ web-noise-suppressor/  RNNoiseのワークレットとWASM、ライセンス文
+│     └─ deepfilternet/         DeepFilterNet3のモジュール・ワークレット・WASM・モデル、ライセンス文
 ├─ tools/
 │  ├─ verify.js                実ブラウザでの自動検証
-│  └─ vendor-rnnoise.js        npmパッケージからvendor/へファイルをコピー
+│  └─ vendor.js                ノイズキャンセルのパッケージからvendor/へファイルをコピー
 └─ docs/handoff.md             このメモ
 ```
 
@@ -51,7 +65,12 @@ audio-fx/
 | コマンド | 内容 |
 |---|---|
 | `npm run verify:nico` / `verify:kick` / `verify:youtube` | サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
-| `npm run vendor` | `@sapphi-red/web-noise-suppressor`から`extension/vendor/`へファイルをコピーし直す |
+| `npm run vendor` | ノイズキャンセルのパッケージから`extension/vendor/`へファイルをコピーし直す |
+
+- `npm run vendor`のファイルの取り方は、パッケージによって違う
+  - `@sapphi-red/web-noise-suppressor`：devDependenciesに入れて、`node_modules`から取る
+  - `@workadventure/noise-suppression`：依存を含めると約150MBあるので`node_modules`には入れない。`tools/vendor.js`で版を固定し、`npm pack`で取り出す
+- `extension/vendor/`のファイルはgitに入れている。DeepFilterNet3の分（約22MB）も含む
 
 - ビルドツールとフレームワークは使っていない。content scriptはmanifestに並べた順に読み込まれ、グローバルスコープを共有する
 - 導入を検討するのは、npmパッケージをバンドルする必要が出たとき、共有コードが増えてグローバル共有がつらくなったとき、型チェックがほしくなったとき。そのときは`esbuild`を第一候補にする
@@ -83,7 +102,7 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 - **無効のあいだは接続しない**：接続すると、リロードするまで元に戻せないため
 - **バイパスはつなぎ替えで行う**：接続後はグラフを切らず、wet/dryのゲインのクロスフェードで切り替える。値は`setTargetAtTime`（時定数20ms）で変え、プツッというノイズを防ぐ
 - **AudioContextがrunningになってから接続する**：自動再生ポリシーでsuspendedのまま接続すると無音になる。`pointerdown`と`keydown`のたびに`resume()`を再試行する
-- **AudioContextは48kHzで作る**：RNNoiseが48kHz前提のため
+- **AudioContextは48kHzで作る**：RNNoiseもDeepFilterNet3も48kHz前提のため
 - **再生開始を`playing`イベントで拾う**：`document`でキャプチャフェーズのリスナーを使う（メディアイベントはバブリングしない）。MutationObserverや`yt-navigate-finish`は使っていない
 - DRM（EME）付きのコンテンツは対象外（未検証）
 
@@ -107,52 +126,86 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 ## 音声グラフの構成
 
 ```
-source ─┬─┬─ RNNoise ─ nrWet ─┬─ EQ（BiquadFilter × 4）─ wet ─┬─ output ─ destination
-        │ └─────────── nrDry ─┘                              │
-        └───────────────────────────────────────────── dry ─┘
+source ─┬─┬─ RNNoise ──────── 方式ごとのwet ─┬─ EQ（BiquadFilter × 4）─ wet ─┬─ output ─ destination
+        │ ├─ DeepFilterNet3 ─ 方式ごとのwet ─┤                              │
+        │ └──────────────────────── nrDry ──┘                              │
+        └─────────────────────────────────────────────────────────── dry ─┘
 ```
 
 - **全体のON/OFF**：`wet`/`dry`で切り替える
-- **ノイズキャンセルのON/OFF**：`nrWet`/`nrDry`で切り替える
+- **ノイズキャンセルのON/OFFと方式**：方式ごとのwetと`nrDry`で切り替える
 - **イコライザー**：lowshelf 100Hz、peaking 1kHz（Q=1）、peaking 3kHz（Q=1）、highshelf 8kHz。ユーザーが変えるのはゲインだけ（±12dB）
-- **ノイズキャンセル**：`@sapphi-red/web-noise-suppressor` 0.4.1 のRNNoiseワークレットを使う
-  - **WASMの渡し方**：ワークレット内では`fetch`が使えないので、content scriptで取得して`processorOptions.wasmBinary`で渡す
-  - **フレームサイズの吸収**：128サンプル単位の入力を、1920サンプルのリングバッファで480サンプルのフレームに組み替えている。遅延は640サンプル（約13ms）
-  - **チャンネル**：チャンネルごとに処理する。入力は2ch（ステレオ）にそろえる
-  - **ノードを作るタイミング**：ノイズキャンセルを初めて有効にしたときに作る。WASMの初期化中は無音になるので、0.15秒待ってから切り替える。読み込めなかったときは素通しのままにする
-  - **既定値**：オフ。RNNoiseは声向けで、音楽の音質を落とすことがあるため
-- **コンプレッサー**：未実装（任意）
-- **設定**：`chrome.storage.local`の`settings`キーに`{ enabled, denoise, gains }`を保存する。既定値は「有効、ノイズキャンセルはオフ、全バンド0dB」
+- **コンプレッサー**：未実装（予定）
+- **設定**：`chrome.storage.local`の`settings`キーに`{ enabled, denoise, engine, gains }`を保存する。既定値は「有効、ノイズキャンセルはオフ、方式はRNNoise、全バンド0dB」
+
+### ノイズキャンセル
+
+**方針**：RNNoiseとDeepFilterNet3の両方を入れ、ユーザーがポップアップで選ぶ。既定はRNNoise。
+
+- 2026-11-09の聞き比べでは、違いはわかりにくかった
+- DeepFilterNet3の強みは、雑音の多い配信で出ると考えている
+
+| | RNNoise | DeepFilterNet3 |
+|---|---|---|
+| パッケージ | `@sapphi-red/web-noise-suppressor` 0.4.1 | `@workadventure/noise-suppression` 0.2.0 |
+| 遅延 | 約13ms（640サンプル） | 約71ms（実測70.7ms） |
+| CPU（i7-8700K、1コアに対する割合） | 約3.7%（ステレオ） | 中央値17〜21%、95パーセンタイル18〜31%（プロセッサの負荷レポート） |
+| チャンネル | チャンネルごとに処理。入力は2ch（ステレオ）にそろえる | モノラルにまとめて処理し、モノラルで出す（EQに入るところで左右に広がる） |
+| ファイルサイズ | WASM 約154KB | WASM 14.6MB + モデル 8MB |
+| 準備中の出力 | 無音になるので、ノードを作ってから0.15秒待って切り替える | 準備ができるまでは入力をそのまま出す（`bypassUntilReady`） |
+
+ノードの作り方と止め方：
+- **作るとき**：その方式を選んだときにノードを作る。ノイズキャンセルを有効にしたとき、または方式を切り替えたとき
+  - 準備中や作れなかったときは`nrDry`（素通し）にする
+- **止めるとき**：使わなくなった方式は、出力を0.2秒でフェードアウトしてから止める
+  - RNNoiseは`destroy`、DeepFilterNet3は`dispose`で止める
+  - もう一度選ばれたら作り直す。WASMやモデルは読み込み済みなので速い
+- **準備中に切り替えられたとき**：準備が終わった時点で、使わずに止める
+
+それぞれの読み込み方：
+- **RNNoise**：ワークレット内では`fetch`が使えないので、WASMはcontent scriptで取得し、`processorOptions.wasmBinary`で渡す
+  - 128サンプル単位の入力を、1920サンプルのリングバッファで480サンプルのフレームに組み替えている
+- **DeepFilterNet3**：パッケージの`createDeepFilterNetAudioWorklet()`を使う
+  - ESモジュールなので、content scriptから動的importする
+  - WASMのコンパイルはcontent scriptで行い、ワークレットに渡す
+  - ワークレット・WASM・モデルのURLは、`getURL`で作った動的URLを明示的に渡す。パッケージは既定では`import.meta.url`からURLを作るが、それは拡張の固定URLになり、`use_dynamic_url`を有効にしているとページから取得できない（「Failed to fetch」になる）
 
 ### ノイズキャンセルのライセンス
 
-`extension/vendor/web-noise-suppressor/`にライセンス文を置いている。
+各パッケージのフォルダ（`extension/vendor/web-noise-suppressor/`、`extension/vendor/deepfilternet/`）にライセンス文を置いている。
 
 | 対象 | ライセンス |
 |---|---|
 | sapphi-red/web-noise-suppressor | MIT |
 | shiguredo/rnnoise-wasm（WASMのビルドとJSラッパー） | Apache-2.0 |
 | xiph/rnnoise | BSD-3-Clause |
+| workadventure/noise-suppression | MIT |
+| DeepFilterNet（libDFとモデルの重み） | MITまたはApache-2.0（MITを選んでいる） |
 
 ## 検証
 
 ### 自動検証（`tools/verify.js`）
 
-インストール済みのChromeを、一時プロファイル・ヘッドレス・ミュートで起動する。`extension/`を読み込んで配信を再生し、ポップアップを実際に操作して、次の5つの設定を順に測る。
+インストール済みのChromeを、一時プロファイル・ヘッドレス・ミュートで起動する。`extension/`を読み込んで配信を再生し、ポップアップを実際に操作して、次の7つの設定を順に測る。
 
 1. EQ有効
 2. 全体を無効にする（素通し）
 3. ゲインを変えて有効に戻す
-4. ノイズキャンセル有効
-5. ノイズキャンセル無効に戻す
+4. ノイズキャンセル有効（RNNoise）
+5. ノイズキャンセル有効（DeepFilterNet3）
+6. RNNoiseに戻す（止めた方式を作り直す）
+7. ノイズキャンセル無効に戻す
 
 拡張のcontent scriptと同じ実行環境（isolated world）で、音声グラフの入口と出口にAnalyserNodeを付けて判定する。
 
-- **パラメータ**：各フィルタのゲイン、wet/dry、nrWet/nrDryが設定どおりか
-- **周波数特性**：EQの「出口 − 入口」が、`getFrequencyResponse`から計算した期待値と1.5dB以内か。入力の最も強い成分より50dB以上弱い帯域は判定しない
+- **パラメータ**：各フィルタのゲイン、wet/dry、方式ごとのwet、`nrDry`が設定どおりか
+- **使っていない方式が止まっているか**：選んでいない方式のノードが残っていないか
+- **周波数特性**：EQの「出口 − 入口」が、`getFrequencyResponse`から計算した期待値と1.5dB以内か
+  - 入力の最も強い成分より50dB以上弱い帯域は判定しない
+  - ノイズキャンセルが効いているときは判定しない
 - **無音でないか**：出力が完全な無音（CORSやWASMの読み込み失敗）になっていないか
 
-2026-11-09の時点で、3サイトとも5パターンすべてOK（期待値との差は0.2dB以内）。
+2026-11-09の時点で、3サイトとも7パターンすべてOK（期待値との差は0.2dB以内）。
 
 ### 実際に聞いての確認
 
@@ -199,11 +252,16 @@ ctx.resume();
   - 固定URLでも出る
   - ニコ生では出ない。Kickは未確認
 
-### ノイズキャンセルのCPU負荷（2026-11-09、i7-8700K 6コア12スレッド）
+### ノイズキャンセルのCPU負荷と遅延（2026-11-09、i7-8700K 6コア12スレッド）
 
 - **RNNoise単体**：ステレオの音声1秒を処理するのに約36.5msかかる。CPU 1コアの約3.7%で、タスクマネージャーの表示（全スレッドに対する割合）では約0.3%
   - 測り方：ニコ生のページのcontent scriptで、OfflineAudioContextに30秒分のステレオ音声を流し、RNNoiseあり・なしの処理時間を比べた
 - **再生中の実測**：Chromeのプロセス別CPU使用率は、同じ状態でも測るたびに10ポイント以上揺れた。そのため、RNNoiseの分は見分けられなかった
+- **DeepFilterNet3**：3サイトで再生中に測った
+  - CPU：プロセッサの負荷レポートで、中央値は実時間の17〜21%。タスクマネージャーの表示では約1.7%
+  - 遅延：入口と出口の波形の相互相関で70.7ms
+  - 読み込み：WASMのコンパイルを含めて81〜229ms。準備ができるまで336〜380ms
+  - 効き方：環境音だけの配信（ニコ生の馬房の定点カメラ）で、約45dB下がった（同じ配信でRNNoiseは約8dB）
 - **拡張のページでの注意**（方式Bのoffscreen documentでノイズキャンセルを使うときは要確認）
   - 拡張のページ（ポップアップなど）では、RNNoiseのWASMが動かず、出力が無音になった。原因は拡張のページのCSPと考えている（未確認）
   - 拡張のページで`chrome.runtime.getURL`のURLを使うと、`use_dynamic_url`による動的URLになり、ワークレットを読み込めなかった。拡張のページからは相対パスで読み込む
@@ -251,9 +309,8 @@ ctx.resume();
 - ログイン状態やプレミアム会員での動作
 - YouTubeでSPA遷移したあとの動作
 - Kickの埋め込みプレイヤーでの動作
-- ノイズキャンセルを一度有効にすると、無効にしてもリロードするまでRNNoiseの処理が続く
-  - 負荷はタスクマネージャーの表示で約0.3%と小さいので、優先度は低い
-  - 対応するなら、無効のときにRNNoiseへの入力を切り離す
+- RNNoiseとDeepFilterNet3の聞き比べ。2026-11-09の時点では違いがわかりにくかった。雑音の多い配信で比べる
+- DeepFilterNet3の遅延（約71ms）で、映像と音声のずれが気にならないか
 - YouTubeで出る`Unsafe attempt to load URL`のログ。消すなら、service worker経由でWASMを取得する
 - TypeScript 7系でJSDocによる型チェックがどこまでできるかは未確認（型チェックを導入するときに確認する）
 
