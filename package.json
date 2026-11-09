@@ -1,0 +1,11 @@
+{
+  "name": "audio-fx",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify:nico": "node tools/verify-niconico.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}
