@@ -19,15 +19,22 @@ const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Applic
 const MAX_TRIES = 5;
 const TOLERANCE_DB = 1.5;
 
+// EQ のテスト用のゲイン（帯域は 31 / 62 / 125 / 250 / 500 / 1k / 2k / 4k / 8k / 16k Hz の順）
+const GAINS_A = [0, -6, 0, 0, 0, 0, 0, 4, 0, -3];
+const GAINS_B = [0, 3, 0, 0, 0, -4, 0, 0, 2, 0];
+const FLAT = GAINS_A.map(() => 0);
+
 // ポップアップで順に設定し、それぞれ測定する
+const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off' };
 const SCENARIOS = [
-  { name: 'EQ 有効', enabled: true, denoise: false, engine: 'rnnoise', gains: [-6, 0, 4, -3] },
-  { name: 'EQ 無効（バイパス）', enabled: false, denoise: false, engine: 'rnnoise', gains: [-6, 0, 4, -3] },
-  { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, denoise: false, engine: 'rnnoise', gains: [3, -4, 0, 2] },
-  { name: 'ノイズキャンセル有効（RNNoise）', enabled: true, denoise: true, engine: 'rnnoise', gains: [0, 0, 0, 0] },
-  { name: 'ノイズキャンセル有効（DeepFilterNet3）', enabled: true, denoise: true, engine: 'deepfilternet', gains: [0, 0, 0, 0] },
-  { name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', enabled: true, denoise: true, engine: 'rnnoise', gains: [0, 0, 0, 0] },
-  { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, engine: 'deepfilternet', gains: [-6, 0, 4, -3] },
+  { ...BASE, name: 'EQ 有効', gains: GAINS_A },
+  { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
+  { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
+  { ...BASE, name: '音量をそろえる（強）', leveler: 'strong', gains: FLAT },
+  { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
+  { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT },
+  { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
+  { ...BASE, name: 'すべて無効に戻す（EQ だけ有効）', engine: 'deepfilternet', gains: GAINS_A },
 ];
 
 // サイトごとの配信の探し方。list のページを開き、links で配信ページの URL を集める
@@ -70,14 +77,14 @@ const INSTALL_PROBE = `(async () => {
   g.source.connect(pre);
   g.output.connect(post);
 
-  const probes = [60, 1000, 3000, 14000];
+  const probes = [62, 1000, 4000, 12000];
   const freqs = new Float32Array(probes);
   const hz = ctx.sampleRate / pre.fftSize;
   const FRAMES = 40;
 
   globalThis.__audioFxProbe = async () => {
     // 期待値: wet 経路なら全フィルタの振幅特性の積、dry 経路なら素通し（0dB）。
-    // ノイズキャンセルが効いているときは周波数特性が入力しだいで変わるので、期待値なし（null）
+    // ノイズキャンセルやコンプレッサーが効いているときは、入力しだいで変わるので期待値なし（null）
     const mag = new Float32Array(probes.length), phase = new Float32Array(probes.length);
     const wetDb = probes.map(() => 0);
     for (const f of g.filters) {
@@ -85,16 +92,18 @@ const INSTALL_PROBE = `(async () => {
       mag.forEach((m, i) => { wetDb[i] += 20 * Math.log10(m); });
     }
     const denoising = Object.values(g.engines).some((e) => e.wet.gain.value > 0.5);
+    const compressing = g.compWet.gain.value > 0.5;
     const expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
-      : denoising ? probes.map(() => null)
+      : denoising || compressing ? probes.map(() => null)
       : wetDb;
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
     const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize);
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
-    let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0;
+    let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
     for (let i = 0; i < FRAMES; i++) {
       await new Promise((r) => setTimeout(r, 100));
+      reduction = Math.min(reduction, g.compressor.reduction);
       pre.getFloatFrequencyData(a);
       post.getFloatFrequencyData(b);
       pre.getFloatTimeDomainData(tdIn);
@@ -117,11 +126,17 @@ const INSTALL_PROBE = `(async () => {
     const avg = (k, key) => (diff[k].c ? diff[k][key] / diff[k].c : null);
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
+      video: { paused: v.paused, time: v.currentTime },
       peak, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
       params: {
         gains: g.filters.map((f) => f.gain.value),
         wet: g.wet.gain.value, dry: g.dry.gain.value, nrDry: g.nrDry.gain.value,
         engines: Object.fromEntries(Object.entries(g.engines).map(([k, e]) => [k, { ready: !!e.node, wet: e.wet.gain.value }])),
+        comp: {
+          wet: g.compWet.gain.value, dry: g.compDry.gain.value,
+          threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value,
+          maxReduction: reduction, // 測定中に最も強く圧縮したときの量（dB、0 以下）
+        },
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -141,20 +156,24 @@ async function findBroadcasts(browser, site) {
   }
 }
 
-// ポップアップのスライダーとスイッチを、ユーザーが操作したときと同じイベントで動かす
-async function setPopup(popup, { enabled, denoise, engine, gains }) {
-  await popup.evaluate((enabled, denoise, engine, gains) => {
-    document.querySelectorAll('.band input').forEach((input, i) => {
-      input.value = gains[i];
+// ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
+// スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
+async function setPopup(popup, { enabled, denoise, engine, leveler, gains }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, gains) => {
+    gains.forEach((gain, i) => {
+      const input = document.querySelector(`.band input[data-band="${i}"]`);
+      input.value = gain;
       input.dispatchEvent(new Event('input'));
     });
-    const radio = document.querySelector(`input[name="engine"][value="${engine}"]`);
-    if (!radio.checked) radio.click();
+    for (const [name, value] of [['engine', engine], ['leveler', leveler]]) {
+      const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
+      if (!radio.checked) radio.click();
+    }
     for (const [id, on] of [['denoise', denoise], ['enabled', enabled]]) {
       const sw = document.getElementById(id);
       if (sw.checked !== on) sw.click();
     }
-  }, enabled, denoise, engine, gains);
+  }, enabled, denoise, engine, leveler, gains);
 }
 
 async function check(browser, extId, url) {
@@ -239,6 +258,8 @@ async function check(browser, extId, url) {
 
 function judgeRun({ scenario, m }) {
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
+  // 入口から無音なら、拡張の処理とは関係なく判定できない（YouTube の広告や読み込み直しで動画が止まることがある）
+  if (m.video.paused || m.inRmsDb === null) return { ok: false, skip: true, reason: '入口が無音で判定できない（動画が止まっている、広告など）' };
   if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
@@ -253,6 +274,10 @@ function judgeRun({ scenario, m }) {
     if (!near(e.wet, scenario.denoise && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
   }
   if (!near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) return { ok: false, reason: 'nrDry のゲインが設定と違う' };
+  const compressing = scenario.leveler !== 'off';
+  if (!near(p.comp.wet, compressing ? 1 : 0, 0.01) || !near(p.comp.dry, compressing ? 0 : 1, 0.01)) {
+    return { ok: false, reason: 'compWet / compDry のゲインが設定と違う' };
+  }
   const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
   if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
     return { ok: false, reason: `周波数特性が期待値と ${TOLERANCE_DB}dB 以上ずれている` };
@@ -281,12 +306,13 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler} / EQ ${scenario.gains.map(f).join(', ')} dB`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));
-    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS`);
+    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
+    console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB`);
     console.log('    出口 − 入口（入口は最も強い成分との差。−50dB 未満の帯域は測定しない）:');
     for (const b of m.bands) {
       console.log(`      ${String(b.hz).padStart(5)}Hz  期待 ${f(b.expectedDb)}dB  実測 ${f(b.measuredDb)}dB  入口 ${f(b.inputDb === null ? null : b.inputDb - m.topDb)}dB`);

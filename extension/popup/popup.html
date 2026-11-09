@@ -21,7 +21,7 @@
       </span>
       <input type="checkbox" role="switch" id="denoise">
     </label>
-    <div class="engines" role="radiogroup" aria-label="ノイズキャンセルの方式">
+    <div class="choices engines" role="radiogroup" aria-label="ノイズキャンセルの方式">
       <label>
         <input type="radio" name="engine" value="rnnoise">
         <span>RNNoise<small>軽い・遅延 約13ms</small></span>
@@ -32,7 +32,22 @@
       </label>
     </div>
   </section>
-  <section id="bands" aria-label="イコライザー"></section>
+  <section class="leveler">
+    <div class="title">
+      音量をそろえる
+      <small>大きい音を抑え、小さい音を持ち上げます</small>
+    </div>
+    <div class="choices levels" role="radiogroup" aria-label="音量をそろえる強さ">
+      <label><input type="radio" name="leveler" value="off"><span>オフ</span></label>
+      <label><input type="radio" name="leveler" value="light"><span>弱</span></label>
+      <label><input type="radio" name="leveler" value="medium"><span>中</span></label>
+      <label><input type="radio" name="leveler" value="strong"><span>強</span></label>
+    </div>
+  </section>
+  <section class="eq">
+    <div class="title">イコライザー</div>
+    <div id="bands"></div>
+  </section>
   <footer>
     <span class="hint">つまみをダブルクリックで 0 dB</span>
     <button type="button" id="reset">フラットに戻す</button>

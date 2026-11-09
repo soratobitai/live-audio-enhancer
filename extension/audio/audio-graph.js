@@ -5,10 +5,11 @@
 // video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
-//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤                                 │
-//           │ └──────────────────────── nrDry ───┘                                 │
-//           └──────────────────────────────────────────────────────────── dry ───┘
+//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ wet ─┬─ output ─ destination
+//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤      └─────────────── compDry ─┘       │
+//           │ └──────────────────────── nrDry ───┘                                        │
+//           └─────────────────────────────────────────────────────────────────── dry ───┘
+// EQ は BiquadFilter を帯域の数だけ直列につないだもの。
 // ノイズキャンセルのノードは、その方式を選んだときに作り、使わなくなったら止める。
 // 準備中や作れなかったときは nrDry 側（素通し）にする。
 const AudioGraph = (() => {
@@ -21,6 +22,15 @@ const AudioGraph = (() => {
   const RNNOISE_DIR = 'vendor/web-noise-suppressor/';
   const RNNOISE_PROCESSOR = '@sapphi-red/web-noise-suppressor/rnnoise';
   const DEEPFILTERNET_DIR = 'vendor/deepfilternet/';
+  // 音量をそろえる（コンプレッサー）の強さごとの設定。
+  // DynamicsCompressorNode は圧縮した分に応じて自動で持ち上げる（メイクアップゲイン）ので、大きい音は抑えられ、
+  // 小さい音は大きくなる。1kHz の正弦波で測ると、入力 -50dB / -3dB に対して出力は
+  // 弱 -44.7 / -6.3、中 -38.2 / -10.5、強 -31.2 / -15.3 dB で、どの強さでも 0dBFS は超えなかった
+  const LEVELERS = {
+    light: { threshold: -24, knee: 12, ratio: 2, attack: 0.01, release: 0.25 },
+    medium: { threshold: -32, knee: 12, ratio: 4, attack: 0.005, release: 0.25 },
+    strong: { threshold: -40, knee: 10, ratio: 8, attack: 0.003, release: 0.25 },
+  };
 
   let ctx = null;
   let running = null;
@@ -181,19 +191,24 @@ const AudioGraph = (() => {
       return f;
     });
     const nrDry = c.createGain();
+    const compressor = c.createDynamicsCompressor();
+    const compWet = c.createGain();
+    const compDry = c.createGain();
     const wet = c.createGain();
     const dry = c.createGain();
     const output = c.createGain();
     source.connect(nrDry);
     nrDry.connect(filters[0]);
     // connect() は接続先を返すので、reduce で直列につなげる
-    filters.reduce((from, to) => from.connect(to)).connect(wet);
+    const eqOut = filters.reduce((from, to) => from.connect(to));
+    eqOut.connect(compressor).connect(compWet).connect(wet);
+    eqOut.connect(compDry).connect(wet);
     wet.connect(output);
     source.connect(dry);
     dry.connect(output);
     output.connect(c.destination);
     // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null
-    return { source, nrDry, filters, wet, dry, output, engines: {} };
+    return { source, nrDry, filters, compressor, compWet, compDry, wet, dry, output, engines: {} };
   }
 
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
@@ -209,6 +224,12 @@ const AudioGraph = (() => {
     g.filters.forEach((f, i) => set(f.gain, settings.gains[i]));
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
+    const leveler = LEVELERS[settings.leveler];
+    if (leveler) {
+      for (const [key, value] of Object.entries(leveler)) set(g.compressor[key], value);
+    }
+    set(g.compWet.gain, leveler ? 1 : 0);
+    set(g.compDry.gain, leveler ? 0 : 1);
     set(g.wet.gain, settings.enabled ? 1 : 0);
     set(g.dry.gain, settings.enabled ? 0 : 1);
     for (const name of Object.keys(g.engines)) {

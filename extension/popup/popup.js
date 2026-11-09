@@ -4,6 +4,7 @@ const enabledInput = document.getElementById('enabled');
 const denoiseInput = document.getElementById('denoise');
 const denoiseSection = document.querySelector('.denoise');
 const engineInputs = document.querySelectorAll('input[name="engine"]');
+const levelerInputs = document.querySelectorAll('input[name="leveler"]');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
 
@@ -13,8 +14,9 @@ const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
 let state;
 
+// 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
-  return Settings.BANDS.map((b, i) => {
+  const controls = Settings.BANDS.map((b, i) => {
     const row = document.createElement('label');
     row.className = 'band';
 
@@ -27,6 +29,7 @@ function buildBands() {
     input.min = -Settings.GAIN_RANGE;
     input.max = Settings.GAIN_RANGE;
     input.step = 0.5;
+    input.dataset.band = i;
 
     const value = document.createElement('output');
 
@@ -42,9 +45,10 @@ function buildBands() {
     });
 
     row.append(name, input, value);
-    bandsSection.append(row);
-    return { input, value };
+    return { row, input, value };
   });
+  bandsSection.append(...controls.map((c) => c.row).reverse());
+  return controls;
 }
 
 function render(controls) {
@@ -52,6 +56,7 @@ function render(controls) {
   denoiseInput.checked = state.denoise;
   denoiseSection.classList.toggle('on', state.denoise);
   for (const input of engineInputs) input.checked = input.value === state.engine;
+  for (const input of levelerInputs) input.checked = input.value === state.leveler;
   document.body.classList.toggle('off', !state.enabled);
   controls.forEach(({ input, value }, i) => {
     input.value = state.gains[i];
@@ -74,11 +79,14 @@ function render(controls) {
     render(controls);
     Settings.save(state);
   });
-  for (const input of engineInputs) {
-    input.addEventListener('change', () => {
-      state.engine = input.value;
-      Settings.save(state);
-    });
+  // ラジオボタンの選択肢（ノイズキャンセルの方式、音量をそろえる強さ）
+  for (const [inputs, key] of [[engineInputs, 'engine'], [levelerInputs, 'leveler']]) {
+    for (const input of inputs) {
+      input.addEventListener('change', () => {
+        state[key] = input.value;
+        Settings.save(state);
+      });
+    }
   }
   resetButton.addEventListener('click', () => {
     state.gains = Settings.defaults().gains;
