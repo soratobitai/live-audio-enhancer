@@ -49,7 +49,14 @@
       <span>イコライザー</span>
       <select id="eqPreset" aria-label="イコライザーのプリセット"></select>
     </div>
-    <div class="auto-note" hidden></div>
+    <div class="auto-options" hidden>
+      <div class="choices strengths" role="radiogroup" aria-label="オートEQの強さ">
+        <label><input type="radio" name="autoStrength" value="gentle"><span>控えめ</span></label>
+        <label><input type="radio" name="autoStrength" value="standard"><span>標準</span></label>
+        <label><input type="radio" name="autoStrength" value="strong"><span>強め</span></label>
+      </div>
+      <div class="auto-note"></div>
+    </div>
     <div id="bands"></div>
   </section>
   <footer>

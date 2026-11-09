@@ -27,9 +27,13 @@ const FLAT = GAINS_A.map(() => 0);
 // ポップアップで順に設定し、それぞれ測定する。
 // eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
-const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off' };
+const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', autoStrength: 'standard' };
+// オートEQ の強さごとの補正の上限（±dB、extension/audio/auto-eq.js の STRENGTHS と同じ値）
+const AUTO_LIMITS = { gentle: 6, standard: 9, strong: 12 };
 const SCENARIOS = [
-  { ...BASE, name: 'オートEQ', eqPreset: 'auto', wait: 20000 },
+  { ...BASE, name: 'オートEQ（標準）', eqPreset: 'auto', wait: 20000 },
+  // 強さを変えると、分析済みの結果からすぐに補正し直す。ゲインが追いつくまで少し待つ
+  { ...BASE, name: 'オートEQ（強め）', eqPreset: 'auto', autoStrength: 'strong', wait: 4000 },
   { ...BASE, name: 'EQ 有効', gains: GAINS_A },
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
@@ -175,8 +179,8 @@ async function findBroadcasts(browser, site) {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, gains, eqPreset }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, gains, eqPreset) => {
+async function setPopup(popup, { enabled, denoise, engine, leveler, autoStrength, gains, eqPreset }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, autoStrength, gains, eqPreset) => {
     if (eqPreset) {
       const select = document.getElementById('eqPreset');
       select.value = eqPreset;
@@ -188,7 +192,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, gains, eqPre
         input.dispatchEvent(new Event('input'));
       });
     }
-    for (const [name, value] of [['engine', engine], ['leveler', leveler]]) {
+    for (const [name, value] of [['engine', engine], ['leveler', leveler], ['autoStrength', autoStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
@@ -196,7 +200,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, gains, eqPre
       const sw = document.getElementById(id);
       if (sw.checked !== on) sw.click();
     }
-  }, enabled, denoise, engine, leveler, gains ?? null, eqPreset ?? null);
+  }, enabled, denoise, engine, leveler, autoStrength, gains ?? null, eqPreset ?? null);
 }
 
 async function check(browser, extId, url) {
@@ -294,7 +298,8 @@ function judgeRun({ scenario, m }) {
   const p = m.params;
   if (scenario.eqPreset === 'auto') {
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
-    if (p.auto.gains.some((g) => Math.abs(g) > 6.01)) return { ok: false, reason: 'オートEQ の補正量が ±6dB を超えている' };
+    const limit = AUTO_LIMITS[scenario.autoStrength];
+    if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
     // フィルタのゲインは時定数1秒でゆっくり追いかけるので、少しの差は許す
     if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 0.5))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
   } else {

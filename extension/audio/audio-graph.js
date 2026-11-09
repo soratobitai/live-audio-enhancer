@@ -241,6 +241,7 @@ const AudioGraph = (() => {
         if (settings.eqPreset !== 'auto') return;
         gains.forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       });
+      g.auto.setStrength(settings.autoStrength);
       // 分析がたまるまでは 0dB（素通し）から始める
       g.auto.gains().forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       return;

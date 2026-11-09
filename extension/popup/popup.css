@@ -148,6 +148,12 @@ select {
   text-align: center;
 }
 
+.strengths {
+  grid-template-columns: repeat(3, 1fr);
+  text-align: center;
+  margin-bottom: 2px;
+}
+
 .choices label {
   cursor: pointer;
 }

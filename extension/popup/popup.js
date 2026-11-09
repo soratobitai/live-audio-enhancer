@@ -7,6 +7,8 @@ const engineInputs = document.querySelectorAll('input[name="engine"]');
 const levelerInputs = document.querySelectorAll('input[name="leveler"]');
 const eqSection = document.querySelector('.eq');
 const presetSelect = document.getElementById('eqPreset');
+const autoOptions = document.querySelector('.auto-options');
+const autoStrengthInputs = document.querySelectorAll('input[name="autoStrength"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
@@ -99,12 +101,13 @@ function render(controls) {
   denoiseSection.classList.toggle('on', state.denoise);
   for (const input of engineInputs) input.checked = input.value === state.engine;
   for (const input of levelerInputs) input.checked = input.value === state.leveler;
+  for (const input of autoStrengthInputs) input.checked = input.value === state.autoStrength;
   document.body.classList.toggle('off', !state.enabled);
   presetSelect.value = state.eqPreset;
 
   const auto = state.eqPreset === 'auto';
   eqSection.classList.toggle('auto', auto);
-  autoNote.hidden = !auto;
+  autoOptions.hidden = !auto;
   clearInterval(autoTimer);
   autoTimer = null;
   if (auto) {
@@ -132,8 +135,8 @@ function render(controls) {
     render(controls);
     Settings.save(state);
   });
-  // ラジオボタンの選択肢（ノイズキャンセルの方式、音量をそろえる強さ）
-  for (const [inputs, key] of [[engineInputs, 'engine'], [levelerInputs, 'leveler']]) {
+  // ラジオボタンの選択肢（ノイズキャンセルの方式、音量をそろえる強さ、オートEQ の強さ）
+  for (const [inputs, key] of [[engineInputs, 'engine'], [levelerInputs, 'leveler'], [autoStrengthInputs, 'autoStrength']]) {
     for (const input of inputs) {
       input.addEventListener('change', () => {
         state[key] = input.value;

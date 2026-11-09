@@ -44,11 +44,14 @@ const Settings = (() => {
   ]);
   // EQ の選択。custom（手動）、auto（オートEQ）、またはプリセットの id
   const EQ_MODES = Object.freeze(['custom', 'auto', ...PRESETS.map((p) => p.id)]);
+  // オートEQ の強さ（控えめ / 標準 / 強め）
+  const AUTO_STRENGTHS = Object.freeze(['gentle', 'standard', 'strong']);
 
   // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする
   function defaults() {
     return {
-      enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', eqPreset: 'flat', gains: BANDS.map(() => 0),
+      enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off',
+      eqPreset: 'flat', autoStrength: 'standard', gains: BANDS.map(() => 0),
     };
   }
 
@@ -66,6 +69,7 @@ const Settings = (() => {
       leveler: LEVELERS.includes(v.leveler) ? v.leveler : d.leveler,
       // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
       eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset : gains === v.gains ? 'custom' : d.eqPreset,
+      autoStrength: AUTO_STRENGTHS.includes(v.autoStrength) ? v.autoStrength : d.autoStrength,
       gains: gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
     };
   }
@@ -85,5 +89,5 @@ const Settings = (() => {
     });
   }
 
-  return { BANDS, GAIN_RANGE, ENGINES, LEVELERS, PRESETS, EQ_MODES, defaults, load, save, onChange };
+  return { BANDS, GAIN_RANGE, ENGINES, LEVELERS, PRESETS, EQ_MODES, AUTO_STRENGTHS, defaults, load, save, onChange };
 })();
