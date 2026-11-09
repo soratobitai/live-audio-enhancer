@@ -1,11 +1,11 @@
-// ニコ生で拡張の動作を確認する。
-// インストール済みの Chrome を一時プロファイル・ヘッドレス・ミュートで起動し、extension/ を読み込んで放送を再生する。
+// 対応サイトで拡張の動作を確認する。
+// インストール済みの Chrome を一時プロファイル・ヘッドレス・ミュートで起動し、extension/ を読み込んで配信を再生する。
 // ポップアップを操作して設定を変え、拡張が video に接続できたか、音が出ているか、
 // EQ・バイパス・ノイズキャンセルが設定どおりに効いているかを数値で判定する。
 //
 // 使い方:
-//   npm run verify:nico                                  トップページから放送を選んで試す
-//   npm run verify:nico -- https://live.nicovideo.jp/watch/lvXXXX
+//   npm run verify:nico / verify:kick / verify:youtube     サイトのページから配信を選んで試す
+//   npm run verify:kick -- https://kick.com/xxxx           URL を指定して試す
 //   Chrome の場所が違うときは環境変数 CHROME_PATH で指定する
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,13 +28,38 @@ const SCENARIOS = [
   { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, gains: [-6, 0, 4, -3] },
 ];
 
+// サイトごとの配信の探し方。list のページを開き、links で配信ページの URL を集める
+const SITES = {
+  nico: {
+    list: 'https://live.nicovideo.jp/',
+    links: (as) => as.map((a) => a.href.split('?')[0]).filter((u) => /\/watch\/lv\d+$/.test(u)),
+  },
+  kick: {
+    list: 'https://kick.com/',
+    // チャンネルページは /<チャンネル名>。カテゴリなど1階層のページを除く
+    links: (as) => as.map((a) => a.href.split('?')[0])
+      .filter((u) => /^https:\/\/kick\.com\/[\w-]+$/.test(u))
+      .filter((u) => !/\/(browse|following|categories|category|events|leaderboards|kickbounties|search)$/.test(u)),
+  },
+  youtube: {
+    // ライブ配信で絞り込んだ検索結果（sp はライブ配信の絞り込み条件）
+    list: 'https://www.youtube.com/results?search_query=live&sp=EgJAAQ%253D%253D',
+    // 検索結果のリンクには &pp=... などが付くので、動画 ID だけを取り出して URL を組み立て直す
+    links: (as) => as.map((a) => a.href.match(/^https:\/\/www\.youtube\.com\/watch\?v=([\w-]+)/)?.[1])
+      .filter(Boolean).map((id) => `https://www.youtube.com/watch?v=${id}`),
+  },
+};
+
+// 判定に使う video 要素。広告用などの見えない要素を避けて、表示サイズがいちばん大きいものを選ぶ
+const PICK_VIDEO = `[...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]`;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 拡張の isolated world に測定用の関数を用意する。
 // 接続済みのグラフ（attach はキャッシュ済みの Promise を返す）の入口と出口に AnalyserNode を付け、
 // 呼ぶたびに、音量、周波数ごとの「出口 − 入口」の dB 差とその期待値、パラメータの現在値を返す。
 const INSTALL_PROBE = `(async () => {
-  const v = document.querySelector('video');
+  const v = ${PICK_VIDEO};
   const g = await AudioGraph.attach(v);
   if (!g) return false;
   const ctx = g.source.context;
@@ -101,12 +126,13 @@ const INSTALL_PROBE = `(async () => {
   return true;
 })()`;
 
-async function findBroadcasts(browser) {
+async function findBroadcasts(browser, site) {
   const page = await browser.newPage();
   try {
-    await page.goto('https://live.nicovideo.jp/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(site.list, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await sleep(8000);
-    return await page.$$eval('a[href*="/watch/lv"]', (as) => [...new Set(as.map((a) => a.href.split('?')[0]))]);
+    const hrefs = await page.$$eval('a[href]', (as) => as.map((a) => ({ href: a.href })));
+    return [...new Set(site.links(hrefs))];
   } finally {
     await page.close();
   }
@@ -153,19 +179,29 @@ async function check(browser, extId, url) {
     await sleep(12000);
     const title = (await page.title()).split(' - ')[0];
 
-    // 自動再生は止められるので、プレイヤー中央（再生ボタン）をクリックする
-    const center = await page.$eval('video', (v) => {
+    // プレイヤー中央をクリックしてユーザー操作の扱いにしてから、ユーザーがするのと同じようにミュート解除と再生をする。
+    // 自動再生が止められるサイト（ニコ生など）も、ミュートで自動再生するサイト（Kick など）もこれで再生できる
+    const center = await page.evaluate(`(() => {
+      const v = ${PICK_VIDEO};
+      if (!v) return null;
       const r = v.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }).catch(() => null);
+    })()`);
     if (!center) return { url, title, skip: 'video 要素がない' };
     await page.mouse.click(center.x, center.y);
-    await sleep(6000);
+    await sleep(1000);
+    await page.evaluate(`(() => {
+      const v = ${PICK_VIDEO};
+      v.muted = false;
+      if (v.volume === 0) v.volume = 0.5;
+      if (v.paused) v.play().catch(() => {});
+    })()`);
+    await sleep(5000);
 
-    const video = await page.evaluate(() => {
-      const v = document.querySelector('video');
-      return { src: v.currentSrc, paused: v.paused };
-    });
+    const video = await page.evaluate(`(() => {
+      const v = ${PICK_VIDEO};
+      return { src: v.currentSrc || (v.srcObject ? Object.prototype.toString.call(v.srcObject) : ''), paused: v.paused };
+    })()`);
     if (video.paused) return { url, title, skip: '再生されない（放送前など）' };
 
     const { frameTree } = await cdp.send('Page.getFrameTree');
@@ -250,6 +286,12 @@ function report(r, j) {
 }
 
 async function main() {
+  const [siteName, ...urls] = process.argv.slice(2);
+  const site = SITES[siteName];
+  if (!site) {
+    console.error(`サイトを指定してください: ${Object.keys(SITES).join(' / ')}`);
+    return 1;
+  }
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-fx-verify-'));
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -262,8 +304,8 @@ async function main() {
   });
   try {
     const extId = await browser.installExtension(EXTENSION);
-    const urls = process.argv.length > 2 ? process.argv.slice(2) : await findBroadcasts(browser);
-    for (const url of urls.slice(0, MAX_TRIES)) {
+    const targets = urls.length ? urls : await findBroadcasts(browser, site);
+    for (const url of targets.slice(0, MAX_TRIES)) {
       const r = await check(browser, extId, url);
       const j = r.runs ? judge(r) : { ok: false, skip: !!r.skip };
       report(r, j);

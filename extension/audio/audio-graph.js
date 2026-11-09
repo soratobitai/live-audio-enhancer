@@ -157,11 +157,18 @@ const AudioGraph = (() => {
     }
   }
 
+  // 接続してよい要素か。別オリジンのメディアを CORS なしで再生している要素に接続すると出力が無音になるので、
+  // ページ自身がデータを用意している MSE（または Blob）の要素だけを対象にする。
+  // Kick（Amazon IVS）は Worker 内で MSE を使い、srcObject に MediaSourceHandle を渡している（currentSrc は空）
+  function canAttach(video) {
+    if (video.currentSrc.startsWith('blob:')) return true;
+    return typeof MediaSourceHandle !== 'undefined' && video.srcObject instanceof MediaSourceHandle;
+  }
+
   function attach(video) {
     if (!graphs.has(video)) {
-      // CORS で出力が無音になるのを避けるため、MSE（blob:）で再生している要素だけを接続する
-      if (!video.currentSrc.startsWith('blob:')) {
-        console.info('[audio-fx] blob: ではないので接続しません', video.currentSrc);
+      if (!canAttach(video)) {
+        console.info('[audio-fx] MSE で再生していないので接続しません', video.currentSrc);
         return Promise.resolve(null);
       }
       graphs.set(video, connect(video));

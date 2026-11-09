@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify:nico": "node tools/verify-niconico.js",
+    "verify:nico": "node tools/verify.js nico",
+    "verify:kick": "node tools/verify.js kick",
+    "verify:youtube": "node tools/verify.js youtube",
     "vendor": "node tools/vendor-rnnoise.js"
   },
   "devDependencies": {
