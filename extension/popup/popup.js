@@ -5,6 +5,9 @@ const denoiseInput = document.getElementById('denoise');
 const denoiseSection = document.querySelector('.denoise');
 const engineInputs = document.querySelectorAll('input[name="engine"]');
 const levelerInputs = document.querySelectorAll('input[name="leveler"]');
+const eqSection = document.querySelector('.eq');
+const presetSelect = document.getElementById('eqPreset');
+const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
 
@@ -13,6 +16,7 @@ const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 
 let state;
+let autoTimer = null;
 
 // 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
@@ -33,9 +37,11 @@ function buildBands() {
 
     const value = document.createElement('output');
 
-    // ドラッグ中も音に反映させたいので、input イベントのたびに保存する
+    // ドラッグ中も音に反映させたいので、input イベントのたびに保存する。手で動かしたらカスタムになる
     input.addEventListener('input', () => {
       state.gains[i] = Number(input.value);
+      state.eqPreset = 'custom';
+      presetSelect.value = 'custom';
       value.textContent = gainText(state.gains[i]);
       Settings.save(state);
     });
@@ -51,6 +57,42 @@ function buildBands() {
   return controls;
 }
 
+function buildPresets() {
+  const add = (parent, value, label) => parent.append(new Option(label, value));
+  add(presetSelect, 'custom', 'カスタム');
+  add(presetSelect, 'auto', 'オート（試作）');
+  const group = document.createElement('optgroup');
+  group.label = 'プリセット';
+  for (const p of Settings.PRESETS) add(group, p.id, p.label);
+  presetSelect.append(group);
+}
+
+function showGains(controls, gains) {
+  controls.forEach(({ input, value }, i) => {
+    input.value = gains[i];
+    value.textContent = gainText(gains[i]);
+  });
+}
+
+// オートEQ の補正量を、表示しているタブの content script に問い合わせて表示する
+async function showAutoEq(controls) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const status = await chrome.tabs.sendMessage(tab.id, { type: 'audio-fx:status' });
+    if (!status?.connected) {
+      autoNote.textContent = 'このタブでは、まだ動画につないでいません';
+    } else if (!status.autoEq?.ready) {
+      autoNote.textContent = '番組の音を分析しています…';
+    } else {
+      autoNote.textContent = '番組の音に合わせて自動で調整しています';
+    }
+    if (status?.autoEq) showGains(controls, status.autoEq.gains);
+  } catch {
+    // 対応サイト以外のタブなど、content script がない
+    autoNote.textContent = 'このタブでは使えません';
+  }
+}
+
 function render(controls) {
   enabledInput.checked = state.enabled;
   denoiseInput.checked = state.denoise;
@@ -58,14 +100,25 @@ function render(controls) {
   for (const input of engineInputs) input.checked = input.value === state.engine;
   for (const input of levelerInputs) input.checked = input.value === state.leveler;
   document.body.classList.toggle('off', !state.enabled);
-  controls.forEach(({ input, value }, i) => {
-    input.value = state.gains[i];
-    value.textContent = gainText(state.gains[i]);
-  });
+  presetSelect.value = state.eqPreset;
+
+  const auto = state.eqPreset === 'auto';
+  eqSection.classList.toggle('auto', auto);
+  autoNote.hidden = !auto;
+  clearInterval(autoTimer);
+  autoTimer = null;
+  if (auto) {
+    showGains(controls, Settings.BANDS.map(() => 0));
+    showAutoEq(controls);
+    autoTimer = setInterval(() => showAutoEq(controls), 1000);
+  } else {
+    showGains(controls, state.gains);
+  }
 }
 
 (async () => {
   state = await Settings.load();
+  buildPresets();
   const controls = buildBands();
   render(controls);
 
@@ -88,8 +141,17 @@ function render(controls) {
       });
     }
   }
+  // プリセットを選んだら、その値をゲインに入れる。カスタムとオートは、手動のゲインをそのまま残す
+  presetSelect.addEventListener('change', () => {
+    state.eqPreset = presetSelect.value;
+    const preset = Settings.PRESETS.find((p) => p.id === state.eqPreset);
+    if (preset) state.gains = [...preset.gains];
+    render(controls);
+    Settings.save(state);
+  });
   resetButton.addEventListener('click', () => {
     state.gains = Settings.defaults().gains;
+    state.eqPreset = 'flat';
     render(controls);
     Settings.save(state);
   });

@@ -5,11 +5,12 @@
 // video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ wet ─┬─ output ─ destination
-//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤      └─────────────── compDry ─┘       │
-//           │ └──────────────────────── nrDry ───┘                                        │
-//           └─────────────────────────────────────────────────────────────────── dry ───┘
+//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ wet ─┬─ output ─ destination
+//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘       │
+//           │ └──────────────────────── nrDry ───┘                                               │
+//           └────────────────────────────────────────────────────────────────────────── dry ───┘
 // EQ は BiquadFilter を帯域の数だけ直列につないだもの。
+// オートEQ のときは、eqIn（EQ に入る前の音）を分析して EQ のゲインを決める。
 // ノイズキャンセルのノードは、その方式を選んだときに作り、使わなくなったら止める。
 // 準備中や作れなかったときは nrDry 側（素通し）にする。
 const AudioGraph = (() => {
@@ -17,6 +18,8 @@ const AudioGraph = (() => {
   const RAMP = 0.02;
   // 使わなくなったノイズキャンセルを止めるまでの時間（ミリ秒）。出力のフェードアウトが終わるのを待つ
   const STOP_DELAY_MS = 200;
+  // オートEQ がゲインを変えるときの時定数（秒）。音色が急に変わらないよう、ゆっくり変える
+  const AUTO_RAMP = 1;
   // RNNoise も DeepFilterNet3 も 48kHz 前提なので、AudioContext を 48kHz で作る（メディアの音声はブラウザが変換する）
   const SAMPLE_RATE = 48000;
   const RNNOISE_DIR = 'vendor/web-noise-suppressor/';
@@ -39,6 +42,7 @@ const AudioGraph = (() => {
   let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
   const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
+  let latest = null; // 最後に接続したグラフ。ポップアップにオートEQの状態を見せるために使う
 
   // AudioContext が running になるまで待つ。
   // 自動再生ポリシーで開始できないときは resume() が保留されるので、ユーザー操作のたびに再試行する。
@@ -150,7 +154,7 @@ const AudioGraph = (() => {
     const c = g.source.context;
     const engine = { node: null, wet: c.createGain(), from: 0, stop: null };
     engine.wet.gain.value = 0;
-    engine.wet.connect(g.filters[0]);
+    engine.wet.connect(g.eqIn);
     g.engines[name] = engine;
     const created = await ENGINES[name].create(c, g.source);
     if (!created) return;
@@ -191,6 +195,7 @@ const AudioGraph = (() => {
       return f;
     });
     const nrDry = c.createGain();
+    const eqIn = c.createGain();
     const compressor = c.createDynamicsCompressor();
     const compWet = c.createGain();
     const compDry = c.createGain();
@@ -198,7 +203,8 @@ const AudioGraph = (() => {
     const dry = c.createGain();
     const output = c.createGain();
     source.connect(nrDry);
-    nrDry.connect(filters[0]);
+    nrDry.connect(eqIn);
+    eqIn.connect(filters[0]);
     // connect() は接続先を返すので、reduce で直列につなげる
     const eqOut = filters.reduce((from, to) => from.connect(to));
     eqOut.connect(compressor).connect(compWet).connect(wet);
@@ -207,8 +213,31 @@ const AudioGraph = (() => {
     source.connect(dry);
     dry.connect(output);
     output.connect(c.destination);
-    // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null
-    return { source, nrDry, filters, compressor, compWet, compDry, wet, dry, output, engines: {} };
+    // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null。
+    // auto: オートEQ の分析（オートEQ を選んでいるあいだだけ動かす）
+    return { source, nrDry, eqIn, filters, compressor, compWet, compDry, wet, dry, output, engines: {}, auto: null };
+  }
+
+  // EQ のゲインを決める。オートEQ のときは分析した結果を、それ以外は設定のゲイン（手動かプリセット）を使う
+  function applyEq(g, ramp) {
+    const c = g.source.context;
+    if (settings.eqPreset === 'auto') {
+      g.auto ??= AutoEq.create(c, g.eqIn, (gains) => {
+        if (settings.eqPreset !== 'auto') return;
+        gains.forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
+      });
+      // 分析がたまるまでは 0dB（素通し）から始める
+      g.auto.gains().forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
+      return;
+    }
+    if (g.auto) {
+      g.auto.stop();
+      g.auto = null;
+    }
+    g.filters.forEach((f, i) => {
+      if (ramp) f.gain.setTargetAtTime(settings.gains[i], c.currentTime, RAMP);
+      else f.gain.value = settings.gains[i];
+    });
   }
 
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
@@ -221,7 +250,7 @@ const AudioGraph = (() => {
     // 使うノイズキャンセル。準備中や作れなかったときは null で、nrDry 側（素通し）にする
     const active = settings.denoise ? g.engines[settings.engine] : undefined;
     const using = active?.node ? active : null;
-    g.filters.forEach((f, i) => set(f.gain, settings.gains[i]));
+    applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
     const leveler = LEVELERS[settings.leveler];
@@ -245,6 +274,7 @@ const AudioGraph = (() => {
       const g = build(c, source);
       apply(g, false);
       live.add(g);
+      latest = g;
       console.info('[audio-fx] 接続しました', video);
       return g;
     } catch (e) {
@@ -278,5 +308,14 @@ const AudioGraph = (() => {
     for (const g of live) apply(g, true);
   }
 
-  return { attach, update };
+  // ポップアップに見せる状態。オートEQ の分析が済んでいるかと、今の補正量
+  function status() {
+    const auto = latest?.auto;
+    return {
+      connected: !!latest,
+      autoEq: auto ? { ready: auto.ready(), gains: auto.gains() } : null,
+    };
+  }
+
+  return { attach, update, status };
 })();

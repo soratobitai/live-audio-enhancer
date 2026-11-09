@@ -26,9 +26,30 @@ const Settings = (() => {
   // 音量をそろえる（コンプレッサー）の強さ
   const LEVELERS = Object.freeze(['off', 'light', 'medium', 'strong']);
 
+  // EQ のプリセット。ゲインは帯域の順（31Hz〜16kHz）で、聞いて調整する前提の初期値。
+  // プリセットを選ぶとその値が gains に入り、スライダーを動かすと 'custom' になる
+  const PRESETS = Object.freeze([
+    { id: 'flat', label: 'フラット', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { id: 'bass', label: '低音強調', gains: [5, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
+    { id: 'treble', label: '高音強調', gains: [0, 0, 0, 0, 0, 0, 1, 3, 4, 5] },
+    { id: 'voice', label: '声を聞きやすく', gains: [-4, -3, -1, 0, 1, 2, 4, 4, 2, 0] },
+    { id: 'music', label: '音楽', gains: [3, 3, 2, 0, -1, -1, 0, 1, 2, 3] },
+    { id: 'movie', label: '映画', gains: [4, 3, 2, 0, -1, 1, 3, 2, 1, 1] },
+    { id: 'news', label: 'ニュース', gains: [-6, -4, -2, 0, 1, 2, 3, 3, 1, -1] },
+    { id: 'talk', label: 'トーク', gains: [-3, -2, 0, 1, 1, 1, 2, 2, 0, -2] },
+    { id: 'game', label: 'ゲーム実況', gains: [2, 2, 0, -1, 0, 1, 3, 3, 2, 1] },
+    { id: 'night', label: '小音量・夜間', gains: [5, 4, 2, 0, 0, 0, 0, 1, 3, 4] },
+    { id: 'gentle', label: '耳にやさしい', gains: [0, 0, 0, 0, 0, 0, -1, -3, -4, -4] },
+    { id: 'lowcut', label: '低音カット', gains: [-12, -8, -3, 0, 0, 0, 0, 0, 0, 0] },
+  ]);
+  // EQ の選択。custom（手動）、auto（オートEQ）、またはプリセットの id
+  const EQ_MODES = Object.freeze(['custom', 'auto', ...PRESETS.map((p) => p.id)]);
+
   // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする
   function defaults() {
-    return { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', gains: BANDS.map(() => 0) };
+    return {
+      enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', eqPreset: 'flat', gains: BANDS.map(() => 0),
+    };
   }
 
   // 保存値が欠けていたり古い形式だったりしても使えるように、既定値に重ねる。
@@ -43,6 +64,8 @@ const Settings = (() => {
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
       engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
       leveler: LEVELERS.includes(v.leveler) ? v.leveler : d.leveler,
+      // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
+      eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset : gains === v.gains ? 'custom' : d.eqPreset,
       gains: gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
     };
   }
@@ -62,5 +85,5 @@ const Settings = (() => {
     });
   }
 
-  return { BANDS, GAIN_RANGE, ENGINES, LEVELERS, defaults, load, save, onChange };
+  return { BANDS, GAIN_RANGE, ENGINES, LEVELERS, PRESETS, EQ_MODES, defaults, load, save, onChange };
 })();

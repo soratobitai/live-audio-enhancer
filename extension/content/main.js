@@ -24,3 +24,8 @@ function applySettings(s) {
 
 Settings.onChange(applySettings);
 Settings.load().then(applySettings);
+
+// ポップアップから、オートEQ の補正量などの状態を問い合わせられる
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'audio-fx:status') sendResponse(AudioGraph.status());
+});

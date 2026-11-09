@@ -105,8 +105,31 @@ h1 {
   font-size: 11px;
 }
 
-.eq .title {
+.eq-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding-top: 6px;
+}
+
+select {
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+.auto-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* オートEQ のあいだは、スライダーは自動で決めた値を表示するだけにする */
+.eq.auto .band input {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 /* ラジオボタンを並べた選択肢。ラジオボタン自体は隠し、枠で選択中を示す */

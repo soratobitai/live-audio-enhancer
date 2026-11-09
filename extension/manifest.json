@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Audio FX",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "ライブ配信の音声にイコライザーとノイズキャンセルをかける",
   "permissions": ["storage"],
   "action": {
@@ -15,7 +15,7 @@
         "https://www.youtube.com/*",
         "https://kick.com/*"
       ],
-      "js": ["shared/settings.js", "audio/audio-graph.js", "content/main.js"],
+      "js": ["shared/settings.js", "audio/auto-eq.js", "audio/audio-graph.js", "content/main.js"],
       "run_at": "document_idle"
     }
   ],

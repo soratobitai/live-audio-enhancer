@@ -24,12 +24,16 @@ const GAINS_A = [0, -6, 0, 0, 0, 0, 0, 4, 0, -3];
 const GAINS_B = [0, 3, 0, 0, 0, -4, 0, 0, 2, 0];
 const FLAT = GAINS_A.map(() => 0);
 
-// ポップアップで順に設定し、それぞれ測定する
+// ポップアップで順に設定し、それぞれ測定する。
+// eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。
+// オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
 const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off' };
 const SCENARIOS = [
+  { ...BASE, name: 'オートEQ', eqPreset: 'auto', wait: 20000 },
   { ...BASE, name: 'EQ 有効', gains: GAINS_A },
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
+  { ...BASE, name: 'プリセット（ニュース）', eqPreset: 'news' },
   { ...BASE, name: '音量をそろえる（強）', leveler: 'strong', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT },
@@ -93,16 +97,21 @@ const INSTALL_PROBE = `(async () => {
     }
     const denoising = Object.values(g.engines).some((e) => e.wet.gain.value > 0.5);
     const compressing = g.compWet.gain.value > 0.5;
+    // オートEQ のあいだは、測っている途中でもゲインが少しずつ変わるので、周波数特性では判定しない
     const expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
-      : denoising || compressing ? probes.map(() => null)
+      : denoising || compressing || g.auto ? probes.map(() => null)
       : wetDb;
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
     const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize);
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
     let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
+    // 測っている途中で動画が止まったり、最初に戻ったり（広告や読み込み直し）したら、結果を使わない
+    let interrupted = false, lastTime = v.currentTime;
     for (let i = 0; i < FRAMES; i++) {
       await new Promise((r) => setTimeout(r, 100));
+      if (v.paused || v.currentTime < lastTime) interrupted = true;
+      lastTime = v.currentTime;
       reduction = Math.min(reduction, g.compressor.reduction);
       pre.getFloatFrequencyData(a);
       post.getFloatFrequencyData(b);
@@ -126,7 +135,7 @@ const INSTALL_PROBE = `(async () => {
     const avg = (k, key) => (diff[k].c ? diff[k][key] / diff[k].c : null);
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
-      video: { paused: v.paused, time: v.currentTime },
+      video: { paused: v.paused, time: v.currentTime, interrupted },
       peak, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
       params: {
         gains: g.filters.map((f) => f.gain.value),
@@ -137,6 +146,8 @@ const INSTALL_PROBE = `(async () => {
           threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value,
           maxReduction: reduction, // 測定中に最も強く圧縮したときの量（dB、0 以下）
         },
+        // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
+        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -158,13 +169,19 @@ async function findBroadcasts(browser, site) {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, gains }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, gains) => {
-    gains.forEach((gain, i) => {
-      const input = document.querySelector(`.band input[data-band="${i}"]`);
-      input.value = gain;
-      input.dispatchEvent(new Event('input'));
-    });
+async function setPopup(popup, { enabled, denoise, engine, leveler, gains, eqPreset }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, gains, eqPreset) => {
+    if (eqPreset) {
+      const select = document.getElementById('eqPreset');
+      select.value = eqPreset;
+      select.dispatchEvent(new Event('change'));
+    } else {
+      gains.forEach((gain, i) => {
+        const input = document.querySelector(`.band input[data-band="${i}"]`);
+        input.value = gain;
+        input.dispatchEvent(new Event('input'));
+      });
+    }
     for (const [name, value] of [['engine', engine], ['leveler', leveler]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
@@ -173,7 +190,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, gains }) {
       const sw = document.getElementById(id);
       if (sw.checked !== on) sw.click();
     }
-  }, enabled, denoise, engine, leveler, gains);
+  }, enabled, denoise, engine, leveler, gains ?? null, eqPreset ?? null);
 }
 
 async function check(browser, extId, url) {
@@ -236,14 +253,18 @@ async function check(browser, extId, url) {
     popup = await browser.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
     await popup.waitForSelector('.band input');
+    // プリセットのゲインは拡張の設定から取る（期待値に使う）
+    const presets = await popup.evaluate(() => Object.fromEntries(Settings.PRESETS.map((p) => [p.id, p.gains])));
 
     const runs = [];
-    for (const s of SCENARIOS) {
+    for (const scenario of SCENARIOS) {
+      const s = presets[scenario.eqPreset] ? { ...scenario, gains: presets[scenario.eqPreset] } : scenario;
       await setPopup(popup, s);
       // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す。
-      // ノイズキャンセルを初めて有効にしたときは、WASM・モデルの読み込みと切り替えの待ちがあるので長めに待つ
+      // ノイズキャンセルを初めて有効にしたときは、WASM・モデルの読み込みと切り替えの待ちがあるので長めに待つ。
+      // オートEQ は分析がたまって補正が落ち着くまで待つ
       await page.bringToFront();
-      await sleep(2000);
+      await sleep(s.wait ?? 2000);
       runs.push({ scenario: s, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
@@ -260,10 +281,19 @@ function judgeRun({ scenario, m }) {
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
   // 入口から無音なら、拡張の処理とは関係なく判定できない（YouTube の広告や読み込み直しで動画が止まることがある）
   if (m.video.paused || m.inRmsDb === null) return { ok: false, skip: true, reason: '入口が無音で判定できない（動画が止まっている、広告など）' };
+  if (m.video.interrupted) return { ok: false, skip: true, reason: '測っている途中で動画が止まった、または最初に戻った（広告など）' };
   if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
-  if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
+  if (scenario.eqPreset === 'auto') {
+    if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
+    if (p.auto.gains.some((g) => Math.abs(g) > 6.01)) return { ok: false, reason: 'オートEQ の補正量が ±6dB を超えている' };
+    // フィルタのゲインは時定数1秒でゆっくり追いかけるので、少しの差は許す
+    if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 0.5))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
+  } else {
+    if (p.auto) return { ok: false, reason: 'オートEQ の分析が止まっていない' };
+    if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
+  }
   if (!near(p.wet, scenario.enabled ? 1 : 0, 0.01) || !near(p.dry, scenario.enabled ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
@@ -306,13 +336,27 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler} / EQ ${scenario.gains.map(f).join(', ')} dB`);
+    const eq = scenario.eqPreset === 'auto' ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));
     console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB`);
+    if (p.auto?.levels) {
+      // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
+      const { levels, target, gains } = p.auto;
+      const mid = [2, 3, 4, 5, 6, 7];
+      const offset = mid.reduce((s, i) => s + levels[i] - target[i], 0) / mid.length;
+      const before = levels.map((l, i) => l - (target[i] + offset));
+      const after = before.map((d, i) => d + gains[i]);
+      const rms = (a) => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length).toFixed(1);
+      const present = (a) => a.filter((_, i) => before[i] >= -24);
+      console.log(`    オートEQ 目安からのずれ: ${before.map(f).join(', ')} dB`);
+      console.log(`    オートEQ 補正量        : ${gains.map(f).join(', ')} dB`);
+      console.log(`    ずれの大きさ（RMS）: 補正前 ${rms(present(before))}dB → 補正後（概算） ${rms(present(after))}dB`);
+    }
     console.log('    出口 − 入口（入口は最も強い成分との差。−50dB 未満の帯域は測定しない）:');
     for (const b of m.bands) {
       console.log(`      ${String(b.hz).padStart(5)}Hz  期待 ${f(b.expectedDb)}dB  実測 ${f(b.measuredDb)}dB  入口 ${f(b.inputDb === null ? null : b.inputDb - m.topDb)}dB`);
