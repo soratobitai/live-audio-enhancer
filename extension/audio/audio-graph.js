@@ -3,18 +3,19 @@
 // 音声グラフの生成をここに集約する。
 // createMediaElementSource() は同じ要素に1回しか呼べないので、接続済みの要素を WeakMap で管理する。
 // ディレイ拡張と統合するときも、video 要素への接続は必ずこのモジュールを経由させる。
+//
+// 接続後はグラフを切らずに、wet / dry のゲインで EQ の有無を切り替える。
+//   source ─┬─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
+//           └─────────────────────────── dry ─┘
 const AudioGraph = (() => {
-  // 動作確認用の固定値（効果が聞き分けられる程度にかけている）
-  const BANDS = [
-    { type: 'lowshelf', freq: 100, gain: -6 },
-    { type: 'peaking', freq: 1000, gain: 0, q: 1 },
-    { type: 'peaking', freq: 3000, gain: 4, q: 1 },
-    { type: 'highshelf', freq: 8000, gain: -3 },
-  ];
+  // パラメータを変えるときの時定数（秒）。値を急に変えるとプツッというノイズが出る
+  const RAMP = 0.02;
 
   let ctx = null;
   let running = null;
+  let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
+  const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
 
   // AudioContext が running になるまで待つ。
   // 自動再生ポリシーで開始できないときは resume() が保留されるので、ユーザー操作のたびに再試行する。
@@ -43,29 +44,47 @@ const AudioGraph = (() => {
     return running;
   }
 
-  function buildChain(c, source) {
-    let node = source;
-    const filters = BANDS.map((b) => {
+  function build(c, source) {
+    const filters = Settings.BANDS.map((b) => {
       const f = c.createBiquadFilter();
       f.type = b.type;
       f.frequency.value = b.freq;
-      f.gain.value = b.gain;
       if (b.q) f.Q.value = b.q;
-      node.connect(f);
-      node = f;
       return f;
     });
-    node.connect(c.destination);
-    return filters;
+    const wet = c.createGain();
+    const dry = c.createGain();
+    const output = c.createGain();
+    // connect() は接続先を返すので、reduce で直列につなげる
+    [source, ...filters, wet].reduce((from, to) => from.connect(to));
+    source.connect(dry);
+    wet.connect(output);
+    dry.connect(output);
+    output.connect(c.destination);
+    return { source, filters, wet, dry, output };
+  }
+
+  // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
+  function apply(g, ramp) {
+    const t = g.source.context.currentTime;
+    const set = (param, v) => {
+      if (ramp) param.setTargetAtTime(v, t, RAMP);
+      else param.value = v;
+    };
+    g.filters.forEach((f, i) => set(f.gain, settings.gains[i]));
+    set(g.wet.gain, settings.enabled ? 1 : 0);
+    set(g.dry.gain, settings.enabled ? 0 : 1);
   }
 
   async function connect(video) {
     const c = await whenRunning();
     try {
       const source = c.createMediaElementSource(video);
-      const filters = buildChain(c, source);
+      const g = build(c, source);
+      apply(g, false);
+      live.add(g);
       console.info('[audio-fx] 接続しました', video);
-      return { source, filters };
+      return g;
     } catch (e) {
       // 別のスクリプトが先に接続済みの場合など。接続し直すことはできないので、再試行はしない
       console.warn('[audio-fx] 接続に失敗しました', e);
@@ -85,5 +104,10 @@ const AudioGraph = (() => {
     return graphs.get(video);
   }
 
-  return { attach };
+  function update(next) {
+    settings = next;
+    for (const g of live) apply(g, true);
+  }
+
+  return { attach, update };
 })();
