@@ -34,6 +34,8 @@ const SCENARIOS = [
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
   { ...BASE, name: 'プリセット（ニュース）', eqPreset: 'news' },
+  // 低音を大きく持ち上げても、リミッターで 0dBFS を超えないこと
+  { ...BASE, name: 'プリセット（低音強調）', eqPreset: 'bass' },
   { ...BASE, name: '音量をそろえる（強）', leveler: 'strong', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT },
@@ -98,7 +100,7 @@ const INSTALL_PROBE = `(async () => {
     const denoising = Object.values(g.engines).some((e) => e.wet.gain.value > 0.5);
     const compressing = g.compWet.gain.value > 0.5;
     // オートEQ のあいだは、測っている途中でもゲインが少しずつ変わるので、周波数特性では判定しない
-    const expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
+    let expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
       : denoising || compressing || g.auto ? probes.map(() => null)
       : wetDb;
 
@@ -107,12 +109,13 @@ const INSTALL_PROBE = `(async () => {
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
     let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
     // 測っている途中で動画が止まったり、最初に戻ったり（広告や読み込み直し）したら、結果を使わない
-    let interrupted = false, lastTime = v.currentTime;
+    let interrupted = false, lastTime = v.currentTime, limiterReduction = 0;
     for (let i = 0; i < FRAMES; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (v.paused || v.currentTime < lastTime) interrupted = true;
       lastTime = v.currentTime;
       reduction = Math.min(reduction, g.compressor.reduction);
+      limiterReduction = Math.min(limiterReduction, g.limiter.reduction);
       pre.getFloatFrequencyData(a);
       post.getFloatFrequencyData(b);
       pre.getFloatTimeDomainData(tdIn);
@@ -133,6 +136,8 @@ const INSTALL_PROBE = `(async () => {
       });
     }
     const avg = (k, key) => (diff[k].c ? diff[k][key] / diff[k].c : null);
+    // リミッターが効いた区間は、EQ の特性どおりにならないので周波数特性では判定しない
+    if (limiterReduction < -1) expected = probes.map(() => null);
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
       video: { paused: v.paused, time: v.currentTime, interrupted },
@@ -146,6 +151,7 @@ const INSTALL_PROBE = `(async () => {
           threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value,
           maxReduction: reduction, // 測定中に最も強く圧縮したときの量（dB、0 以下）
         },
+        limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
         auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
       },
@@ -283,6 +289,7 @@ function judgeRun({ scenario, m }) {
   if (m.video.paused || m.inRmsDb === null) return { ok: false, skip: true, reason: '入口が無音で判定できない（動画が止まっている、広告など）' };
   if (m.video.interrupted) return { ok: false, skip: true, reason: '測っている途中で動画が止まった、または最初に戻った（広告など）' };
   if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
+  if (m.peak > 1) return { ok: false, reason: `出力が 0dBFS を超えた（ピーク ${m.peak.toFixed(3)}、音割れ）` };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
   if (scenario.eqPreset === 'auto') {
@@ -343,7 +350,7 @@ function report(r, j) {
     console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
-    console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB`);
+    console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB　リミッターの最大圧縮量 ${p.limiter.maxReduction.toFixed(1)}dB`);
     if (p.auto?.levels) {
       // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
       const { levels, target, gains } = p.auto;

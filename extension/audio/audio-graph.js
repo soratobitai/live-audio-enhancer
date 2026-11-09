@@ -5,10 +5,11 @@
 // video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ wet ─┬─ output ─ destination
-//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘       │
-//           │ └──────────────────────── nrDry ───┘                                               │
-//           └────────────────────────────────────────────────────────────────────────── dry ───┘
+//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ リミッター ─ wet ─┬─ output ─ destination
+//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘                   │
+//           │ └──────────────────────── nrDry ───┘                                                           │
+//           └────────────────────────────────────────────────────────────────────────────────────── dry ───┘
+// リミッターは、EQ で持ち上げても 0dBFS を超えて音割れしないように、エフェクト側の経路の最後に常に入れる。
 // EQ は BiquadFilter を帯域の数だけ直列につないだもの。
 // オートEQ のときは、eqIn（EQ に入る前の音）を分析して EQ のゲインを決める。
 // ノイズキャンセルのノードは、その方式を選んだときに作り、使わなくなったら止める。
@@ -34,6 +35,13 @@ const AudioGraph = (() => {
     medium: { threshold: -32, knee: 12, ratio: 4, attack: 0.005, release: 0.25 },
     strong: { threshold: -40, knee: 10, ratio: 8, attack: 0.003, release: 0.25 },
   };
+  // 音割れ防止のリミッター。DynamicsCompressorNode をリミッターとして使う。
+  // この Node は、0dB の入力に対するゲインの逆数の 0.6 乗を自動のメイクアップゲインとしてかけるので、
+  // 直後の GainNode で打ち消し、しきい値より小さい音は変えないようにする（この設定では 1.71dB）。
+  // 100Hz の正弦波で測ると、+12dB の入力でも -1.95dBFS、-30dB から +12dB に跳ね上がる音でも -1.35dBFS に収まった
+  // （しきい値を -1dB にすると、跳ね上がる音で +0.4dBFS になった）
+  const LIMITER = { threshold: -3, knee: 0, ratio: 20, attack: 0, release: 0.1 };
+  const LIMITER_MAKEUP_DB = -0.6 * (LIMITER.threshold - LIMITER.threshold / LIMITER.ratio);
 
   let ctx = null;
   let running = null;
@@ -199,6 +207,10 @@ const AudioGraph = (() => {
     const compressor = c.createDynamicsCompressor();
     const compWet = c.createGain();
     const compDry = c.createGain();
+    const limiter = c.createDynamicsCompressor();
+    for (const [key, value] of Object.entries(LIMITER)) limiter[key].value = value;
+    const limiterTrim = c.createGain();
+    limiterTrim.gain.value = 10 ** (-LIMITER_MAKEUP_DB / 20);
     const wet = c.createGain();
     const dry = c.createGain();
     const output = c.createGain();
@@ -207,15 +219,18 @@ const AudioGraph = (() => {
     eqIn.connect(filters[0]);
     // connect() は接続先を返すので、reduce で直列につなげる
     const eqOut = filters.reduce((from, to) => from.connect(to));
-    eqOut.connect(compressor).connect(compWet).connect(wet);
-    eqOut.connect(compDry).connect(wet);
+    eqOut.connect(compressor).connect(compWet).connect(limiter);
+    eqOut.connect(compDry).connect(limiter);
+    limiter.connect(limiterTrim).connect(wet);
     wet.connect(output);
     source.connect(dry);
     dry.connect(output);
     output.connect(c.destination);
     // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null。
     // auto: オートEQ の分析（オートEQ を選んでいるあいだだけ動かす）
-    return { source, nrDry, eqIn, filters, compressor, compWet, compDry, wet, dry, output, engines: {}, auto: null };
+    return {
+      source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, engines: {}, auto: null,
+    };
   }
 
   // EQ のゲインを決める。オートEQ のときは分析した結果を、それ以外は設定のゲイン（手動かプリセット）を使う
