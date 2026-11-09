@@ -1,7 +1,7 @@
 // ニコ生で拡張の動作を確認する。
 // インストール済みの Chrome を一時プロファイル・ヘッドレス・ミュートで起動し、extension/ を読み込んで放送を再生する。
 // ポップアップを操作して設定を変え、拡張が video に接続できたか、音が出ているか、
-// EQ とバイパスが設定どおりに効いているかを数値で判定する。
+// AudioWorklet が経路に入っているか、EQ とバイパスが設定どおりに効いているかを数値で判定する。
 //
 // 使い方:
 //   npm run verify:nico                                  トップページから放送を選んで試す
@@ -34,7 +34,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const INSTALL_PROBE = `(async () => {
   const v = document.querySelector('video');
   const g = await AudioGraph.attach(v);
-  if (!g) return false;
+  if (!g) return null;
   const ctx = g.source.context;
   const mk = () => { const a = ctx.createAnalyser(); a.fftSize = 8192; a.smoothingTimeConstant = 0; return a; };
   const pre = mk(), post = mk();
@@ -83,7 +83,7 @@ const INSTALL_PROBE = `(async () => {
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
   };
-  return true;
+  return { worklet: g.worklet ? g.worklet.constructor.name : null };
 })()`;
 
 async function findBroadcasts(browser) {
@@ -154,7 +154,8 @@ async function check(browser, extId, url) {
     const { frameTree } = await cdp.send('Page.getFrameTree');
     const contextId = contexts.get(frameTree.frame.id);
     if (contextId === undefined) return { url, title, logs, fail: 'content script が注入されていない' };
-    if (!(await evaluate(contextId, INSTALL_PROBE))) return { url, title, logs, video, fail: '接続されていない' };
+    const probe = await evaluate(contextId, INSTALL_PROBE);
+    if (!probe) return { url, title, logs, video, fail: '接続されていない' };
 
     popup = await browser.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
@@ -169,7 +170,7 @@ async function check(browser, extId, url) {
       runs.push({ scenario: s, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
-    return { url, title, logs, video, runs };
+    return { url, title, logs, video, worklet: probe.worklet, runs };
   } catch (e) {
     return { url, fail: e.message };
   } finally {
@@ -197,8 +198,8 @@ function judgeRun({ scenario, m }) {
 function judge(r) {
   const results = r.runs.map(judgeRun);
   return {
-    ok: results.every((j) => j.ok),
-    skip: results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
+    ok: !!r.worklet && results.every((j) => j.ok),
+    skip: !!r.worklet && results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
     results,
   };
 }
@@ -210,6 +211,7 @@ function report(r, j) {
   for (const l of r.logs ?? []) console.log(`  ログ: ${l}`);
   if (r.fail) return console.log(`  NG: ${r.fail}`);
   console.log(`  src: ${r.video.src}`);
+  console.log(`  AudioWorklet: ${r.worklet ?? 'NG 経路に入っていない'}`);
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);

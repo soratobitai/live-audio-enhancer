@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Audio FX",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ライブ配信の音声にイコライザーをかける",
   "permissions": ["storage"],
   "action": {
@@ -16,6 +16,16 @@
       ],
       "js": ["shared/settings.js", "audio/audio-graph.js", "content/main.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["worklets/*"],
+      "matches": [
+        "https://live.nicovideo.jp/*",
+        "https://www.youtube.com/*"
+      ],
+      "use_dynamic_url": true
     }
   ]
 }

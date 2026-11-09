@@ -4,15 +4,17 @@
 // createMediaElementSource() は同じ要素に1回しか呼べないので、接続済みの要素を WeakMap で管理する。
 // ディレイ拡張と統合するときも、video 要素への接続は必ずこのモジュールを経由させる。
 //
-// 接続後はグラフを切らずに、wet / dry のゲインで EQ の有無を切り替える。
-//   source ─┬─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
-//           └─────────────────────────── dry ─┘
+// 接続後はグラフを切らずに、wet / dry のゲインでエフェクトの有無を切り替える。
+// worklet はノイズキャンセルを入れる位置（今は素通し）。読み込めなかったときは省いて接続する。
+//   source ─┬─ worklet ─ EQ（BiquadFilter × 帯域数）─ wet ─┬─ output ─ destination
+//           └────────────────────────────────────── dry ─┘
 const AudioGraph = (() => {
   // パラメータを変えるときの時定数（秒）。値を急に変えるとプツッというノイズが出る
   const RAMP = 0.02;
 
   let ctx = null;
   let running = null;
+  let worklets = null; // Promise<boolean>: AudioWorklet のモジュールを読み込めたか
   let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
   const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
@@ -44,7 +46,22 @@ const AudioGraph = (() => {
     return running;
   }
 
-  function build(c, source) {
+  // AudioWorklet のモジュールを読み込む。
+  // 拡張内のファイルを web_accessible_resources に登録しておけば、ページの CSP に関係なく読み込める。
+  // Blob URL や data: URL は YouTube の CSP で止められることを確認したので使わない。
+  function loadWorklets(c) {
+    worklets ??= c.audioWorklet.addModule(chrome.runtime.getURL('worklets/passthrough.js')).then(
+      () => true,
+      (e) => {
+        console.warn('[audio-fx] AudioWorklet を読み込めませんでした。ワークレットなしで接続します', e);
+        return false;
+      },
+    );
+    return worklets;
+  }
+
+  function build(c, source, useWorklet) {
+    const worklet = useWorklet ? new AudioWorkletNode(c, 'passthrough') : null;
     const filters = Settings.BANDS.map((b) => {
       const f = c.createBiquadFilter();
       f.type = b.type;
@@ -56,12 +73,12 @@ const AudioGraph = (() => {
     const dry = c.createGain();
     const output = c.createGain();
     // connect() は接続先を返すので、reduce で直列につなげる
-    [source, ...filters, wet].reduce((from, to) => from.connect(to));
+    [source, ...(worklet ? [worklet] : []), ...filters, wet].reduce((from, to) => from.connect(to));
     source.connect(dry);
     wet.connect(output);
     dry.connect(output);
     output.connect(c.destination);
-    return { source, filters, wet, dry, output };
+    return { source, worklet, filters, wet, dry, output };
   }
 
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
@@ -78,9 +95,10 @@ const AudioGraph = (() => {
 
   async function connect(video) {
     const c = await whenRunning();
+    const useWorklet = await loadWorklets(c);
     try {
       const source = c.createMediaElementSource(video);
-      const g = build(c, source);
+      const g = build(c, source, useWorklet);
       apply(g, false);
       live.add(g);
       console.info('[audio-fx] 接続しました', video);
