@@ -9,11 +9,13 @@
 //           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤                                 │
 //           │ └──────────────────────── nrDry ───┘                                 │
 //           └──────────────────────────────────────────────────────────── dry ───┘
-// ノイズキャンセルのノードは、その方式を初めて使うときに作る。
+// ノイズキャンセルのノードは、その方式を選んだときに作り、使わなくなったら止める。
 // 準備中や作れなかったときは nrDry 側（素通し）にする。
 const AudioGraph = (() => {
   // パラメータを変えるときの時定数（秒）。値を急に変えるとプツッというノイズが出る
   const RAMP = 0.02;
+  // 使わなくなったノイズキャンセルを止めるまでの時間（ミリ秒）。出力のフェードアウトが終わるのを待つ
+  const STOP_DELAY_MS = 200;
   // RNNoise も DeepFilterNet3 も 48kHz 前提なので、AudioContext を 48kHz で作る（メディアの音声はブラウザが変換する）
   const SAMPLE_RATE = 48000;
   const RNNOISE_DIR = 'vendor/web-noise-suppressor/';
@@ -88,7 +90,8 @@ const AudioGraph = (() => {
       processorOptions: { wasmBinary, maxChannels: 2 },
     });
     source.connect(node);
-    return node;
+    // ワークレット内の RNNoise の状態を解放してから切り離す
+    return { node, stop: () => { node.port.postMessage('destroy'); node.disconnect(); } };
   }
 
   // DeepFilterNet3 は、パッケージの createDeepFilterNetAudioWorklet() で作る。
@@ -115,7 +118,7 @@ const AudioGraph = (() => {
       // 準備ができるまでは入力をそのまま出す（bypassUntilReady）。準備ができてから出力に切り替える
       source.connect(worklet.node);
       await worklet.ready;
-      return worklet.node;
+      return { node: worklet.node, stop: () => worklet.dispose() };
     } catch (e) {
       worklet?.dispose();
       console.warn('[audio-fx] DeepFilterNet3 を使えませんでした', e);
@@ -123,7 +126,8 @@ const AudioGraph = (() => {
     }
   }
 
-  // ノイズキャンセルの方式ごとの作り方。create(c, source) は、source につないで使える状態にしたノードを返す（失敗なら null）。
+  // ノイズキャンセルの方式ごとの作り方。create(c, source) は、source につないで使える状態にしたノードと、
+  // それを止める関数 { node, stop } を返す（失敗なら null）。
   // warmup は、ノードができてから出力に切り替えるまでに待つ秒数。
   // RNNoise のワークレットは WASM を非同期に初期化し、それまでは無音を出すので少し待つ
   const ENGINES = {
@@ -134,17 +138,38 @@ const AudioGraph = (() => {
   async function ensureEngine(g, name) {
     if (g.engines[name]) return;
     const c = g.source.context;
-    const engine = { node: null, wet: c.createGain(), from: 0 };
+    const engine = { node: null, wet: c.createGain(), from: 0, stop: null };
     engine.wet.gain.value = 0;
     engine.wet.connect(g.filters[0]);
     g.engines[name] = engine;
-    const node = await ENGINES[name].create(c, g.source);
-    if (!node) return;
-    node.connect(engine.wet);
-    engine.node = node;
+    const created = await ENGINES[name].create(c, g.source);
+    if (!created) return;
+    engine.stop = () => {
+      g.source.disconnect(created.node);
+      created.stop();
+    };
+    // 準備しているあいだに別の方式に切り替えられていたら、使わずに止める
+    if (g.engines[name] !== engine) {
+      engine.stop();
+      return;
+    }
+    created.node.connect(engine.wet);
+    engine.node = created.node;
     engine.from = c.currentTime + ENGINES[name].warmup;
     apply(g, true);
     console.info(`[audio-fx] ノイズキャンセル（${name}）を準備しました`);
+  }
+
+  // 使わなくなった方式は、出力をフェードアウトしてから止める（裏で処理し続けて CPU を使わないように）。
+  // もう一度選ばれたときは作り直す（WASM やモデルは読み込み済みなので速い）
+  function stopEngine(g, name) {
+    const engine = g.engines[name];
+    delete g.engines[name];
+    engine.wet.gain.setTargetAtTime(0, g.source.context.currentTime, RAMP);
+    setTimeout(() => {
+      engine.wet.disconnect();
+      engine.stop?.();
+    }, STOP_DELAY_MS);
   }
 
   function build(c, source) {
@@ -186,6 +211,9 @@ const AudioGraph = (() => {
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
     set(g.wet.gain, settings.enabled ? 1 : 0);
     set(g.dry.gain, settings.enabled ? 0 : 1);
+    for (const name of Object.keys(g.engines)) {
+      if (!(settings.denoise && name === settings.engine)) stopEngine(g, name);
+    }
     if (settings.denoise) ensureEngine(g, settings.engine);
   }
 

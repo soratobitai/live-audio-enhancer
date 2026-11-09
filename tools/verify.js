@@ -26,6 +26,7 @@ const SCENARIOS = [
   { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, denoise: false, engine: 'rnnoise', gains: [3, -4, 0, 2] },
   { name: 'ノイズキャンセル有効（RNNoise）', enabled: true, denoise: true, engine: 'rnnoise', gains: [0, 0, 0, 0] },
   { name: 'ノイズキャンセル有効（DeepFilterNet3）', enabled: true, denoise: true, engine: 'deepfilternet', gains: [0, 0, 0, 0] },
+  { name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', enabled: true, denoise: true, engine: 'rnnoise', gains: [0, 0, 0, 0] },
   { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, engine: 'deepfilternet', gains: [-6, 0, 4, -3] },
 ];
 
@@ -246,6 +247,8 @@ function judgeRun({ scenario, m }) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
   if (scenario.denoise && !p.engines[scenario.engine]?.ready) return { ok: false, reason: `${scenario.engine} のノードがない` };
+  const leftover = Object.keys(p.engines).filter((k) => !(scenario.denoise && k === scenario.engine));
+  if (leftover.length) return { ok: false, reason: `使っていない方式が止まっていない: ${leftover.join(', ')}` };
   for (const [name, e] of Object.entries(p.engines)) {
     if (!near(e.wet, scenario.denoise && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
   }
