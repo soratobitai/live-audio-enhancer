@@ -13,8 +13,9 @@ const Settings = (() => {
   ]);
   const GAIN_RANGE = 12; // ±dB
 
+  // ノイズキャンセル（RNNoise）は声向けで、音楽の音質を落とすことがあるので既定ではオフにする
   function defaults() {
-    return { enabled: true, gains: BANDS.map(() => 0) };
+    return { enabled: true, denoise: false, gains: BANDS.map(() => 0) };
   }
 
   // 保存値が欠けていたり帯域数が変わっていたりしても使えるように、既定値に重ねる
@@ -24,6 +25,7 @@ const Settings = (() => {
     const clamp = (x) => Math.min(GAIN_RANGE, Math.max(-GAIN_RANGE, x));
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
+      denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
       gains: d.gains.map((g, i) => (Number.isFinite(v.gains?.[i]) ? clamp(v.gains[i]) : g)),
     };
   }

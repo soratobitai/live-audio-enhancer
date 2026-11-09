@@ -1,7 +1,7 @@
 // ニコ生で拡張の動作を確認する。
 // インストール済みの Chrome を一時プロファイル・ヘッドレス・ミュートで起動し、extension/ を読み込んで放送を再生する。
 // ポップアップを操作して設定を変え、拡張が video に接続できたか、音が出ているか、
-// AudioWorklet が経路に入っているか、EQ とバイパスが設定どおりに効いているかを数値で判定する。
+// EQ・バイパス・ノイズキャンセルが設定どおりに効いているかを数値で判定する。
 //
 // 使い方:
 //   npm run verify:nico                                  トップページから放送を選んで試す
@@ -21,9 +21,11 @@ const TOLERANCE_DB = 1.5;
 
 // ポップアップで順に設定し、それぞれ測定する
 const SCENARIOS = [
-  { name: 'EQ 有効', enabled: true, gains: [-6, 0, 4, -3] },
-  { name: 'EQ 無効（バイパス）', enabled: false, gains: [-6, 0, 4, -3] },
-  { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, gains: [3, -4, 0, 2] },
+  { name: 'EQ 有効', enabled: true, denoise: false, gains: [-6, 0, 4, -3] },
+  { name: 'EQ 無効（バイパス）', enabled: false, denoise: false, gains: [-6, 0, 4, -3] },
+  { name: 'EQ 有効に戻す（ゲイン変更）', enabled: true, denoise: false, gains: [3, -4, 0, 2] },
+  { name: 'ノイズキャンセル有効', enabled: true, denoise: true, gains: [0, 0, 0, 0] },
+  { name: 'ノイズキャンセル無効に戻す', enabled: true, denoise: false, gains: [-6, 0, 4, -3] },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -34,7 +36,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const INSTALL_PROBE = `(async () => {
   const v = document.querySelector('video');
   const g = await AudioGraph.attach(v);
-  if (!g) return null;
+  if (!g) return false;
   const ctx = g.source.context;
   const mk = () => { const a = ctx.createAnalyser(); a.fftSize = 8192; a.smoothingTimeConstant = 0; return a; };
   const pre = mk(), post = mk();
@@ -47,25 +49,34 @@ const INSTALL_PROBE = `(async () => {
   const FRAMES = 40;
 
   globalThis.__audioFxProbe = async () => {
-    // 期待値: wet 経路なら全フィルタの振幅特性の積、dry 経路なら素通し（0dB）
+    // 期待値: wet 経路なら全フィルタの振幅特性の積、dry 経路なら素通し（0dB）。
+    // ノイズキャンセルが効いているときは周波数特性が入力しだいで変わるので、期待値なし（null）
     const mag = new Float32Array(probes.length), phase = new Float32Array(probes.length);
     const wetDb = probes.map(() => 0);
     for (const f of g.filters) {
       f.getFrequencyResponse(freqs, mag, phase);
       mag.forEach((m, i) => { wetDb[i] += 20 * Math.log10(m); });
     }
-    const expected = g.wet.gain.value > 0.5 ? wetDb : probes.map(() => 0);
+    const expected = g.wet.gain.value < 0.5 ? probes.map(() => 0)
+      : g.nrWet.gain.value > 0.5 ? probes.map(() => null)
+      : wetDb;
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
-    const td = new Float32Array(post.fftSize);
+    const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize);
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
-    let peak = 0, sq = 0, n = 0, top = 0;
+    let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0;
     for (let i = 0; i < FRAMES; i++) {
       await new Promise((r) => setTimeout(r, 100));
       pre.getFloatFrequencyData(a);
       post.getFloatFrequencyData(b);
-      post.getFloatTimeDomainData(td);
-      for (const x of td) { peak = Math.max(peak, Math.abs(x)); sq += x * x; n++; }
+      pre.getFloatTimeDomainData(tdIn);
+      post.getFloatTimeDomainData(tdOut);
+      for (let j = 0; j < tdOut.length; j++) {
+        peak = Math.max(peak, Math.abs(tdOut[j]));
+        sqIn += tdIn[j] * tdIn[j];
+        sqOut += tdOut[j] * tdOut[j];
+        n++;
+      }
       // 最も強い成分より 50dB 以上弱いビンはノイズに埋もれていて差が当てにならないので、測定に使わない
       const mx = Math.max(...a);
       top += mx;
@@ -78,12 +89,16 @@ const INSTALL_PROBE = `(async () => {
     const avg = (k, key) => (diff[k].c ? diff[k][key] / diff[k].c : null);
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
-      peak, rmsDb: 10 * Math.log10(sq / n), topDb: top / FRAMES,
-      params: { gains: g.filters.map((f) => f.gain.value), wet: g.wet.gain.value, dry: g.dry.gain.value },
+      peak, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
+      params: {
+        gains: g.filters.map((f) => f.gain.value),
+        wet: g.wet.gain.value, dry: g.dry.gain.value, nrWet: g.nrWet.gain.value, nrDry: g.nrDry.gain.value,
+        denoiser: g.denoiser ? g.denoiser.constructor.name : null,
+      },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
   };
-  return { worklet: g.worklet ? g.worklet.constructor.name : null };
+  return true;
 })()`;
 
 async function findBroadcasts(browser) {
@@ -98,15 +113,17 @@ async function findBroadcasts(browser) {
 }
 
 // ポップアップのスライダーとスイッチを、ユーザーが操作したときと同じイベントで動かす
-async function setPopup(popup, { enabled, gains }) {
-  await popup.evaluate((enabled, gains) => {
+async function setPopup(popup, { enabled, denoise, gains }) {
+  await popup.evaluate((enabled, denoise, gains) => {
     document.querySelectorAll('.band input').forEach((input, i) => {
       input.value = gains[i];
       input.dispatchEvent(new Event('input'));
     });
-    const sw = document.getElementById('enabled');
-    if (sw.checked !== enabled) sw.click();
-  }, enabled, gains);
+    for (const [id, on] of [['denoise', denoise], ['enabled', enabled]]) {
+      const sw = document.getElementById(id);
+      if (sw.checked !== on) sw.click();
+    }
+  }, enabled, denoise, gains);
 }
 
 async function check(browser, extId, url) {
@@ -154,8 +171,7 @@ async function check(browser, extId, url) {
     const { frameTree } = await cdp.send('Page.getFrameTree');
     const contextId = contexts.get(frameTree.frame.id);
     if (contextId === undefined) return { url, title, logs, fail: 'content script が注入されていない' };
-    const probe = await evaluate(contextId, INSTALL_PROBE);
-    if (!probe) return { url, title, logs, video, fail: '接続されていない' };
+    if (!(await evaluate(contextId, INSTALL_PROBE))) return { url, title, logs, video, fail: '接続されていない' };
 
     popup = await browser.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
@@ -164,13 +180,14 @@ async function check(browser, extId, url) {
     const runs = [];
     for (const s of SCENARIOS) {
       await setPopup(popup, s);
-      // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す
+      // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す。
+      // ノイズキャンセルを初めて有効にしたときは、WASM の読み込みと切り替えの待ちがあるので長めに待つ
       await page.bringToFront();
-      await sleep(500);
+      await sleep(1000);
       runs.push({ scenario: s, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
-    return { url, title, logs, video, worklet: probe.worklet, runs };
+    return { url, title, logs, video, runs };
   } catch (e) {
     return { url, fail: e.message };
   } finally {
@@ -181,25 +198,31 @@ async function check(browser, extId, url) {
 
 function judgeRun({ scenario, m }) {
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
-  if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS で出力が止められている可能性）' };
+  if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
-  if (!scenario.gains.every((g, i) => near(m.params.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
-  if (!near(m.params.wet, scenario.enabled ? 1 : 0, 0.01) || !near(m.params.dry, scenario.enabled ? 0 : 1, 0.01)) {
+  const p = m.params;
+  if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
+  if (!near(p.wet, scenario.enabled ? 1 : 0, 0.01) || !near(p.dry, scenario.enabled ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
-  const measured = m.bands.filter((b) => b.measuredDb !== null);
-  if (measured.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
+  if (scenario.denoise && !p.denoiser) return { ok: false, reason: 'RNNoise のノードがない' };
+  if (!near(p.nrWet, scenario.denoise ? 1 : 0, 0.01) || !near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) {
+    return { ok: false, reason: 'nrWet / nrDry のゲインが設定と違う' };
+  }
+  const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
+  if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
     return { ok: false, reason: `周波数特性が期待値と ${TOLERANCE_DB}dB 以上ずれている` };
   }
-  if (measured.length < 2) return { ok: false, skip: true, reason: '測れる帯域が少ない' };
+  const expectsBands = m.bands.some((b) => b.expectedDb !== null);
+  if (expectsBands && judged.length < 2) return { ok: false, skip: true, reason: '測れる帯域が少ない' };
   return { ok: true };
 }
 
 function judge(r) {
   const results = r.runs.map(judgeRun);
   return {
-    ok: !!r.worklet && results.every((j) => j.ok),
-    skip: !!r.worklet && results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
+    ok: results.every((j) => j.ok),
+    skip: results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
     results,
   };
 }
@@ -211,12 +234,12 @@ function report(r, j) {
   for (const l of r.logs ?? []) console.log(`  ログ: ${l}`);
   if (r.fail) return console.log(`  NG: ${r.fail}`);
   console.log(`  src: ${r.video.src}`);
-  console.log(`  AudioWorklet: ${r.worklet ?? 'NG 経路に入っていない'}`);
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);
-    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: ${m.rmsDb.toFixed(1)}dBFS`);
-    console.log(`    パラメータ: ゲイン ${m.params.gains.map(f).join(', ')} dB　wet ${m.params.wet.toFixed(2)}　dry ${m.params.dry.toFixed(2)}`);
+    const p = m.params;
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? 'ON' : 'OFF'} / ${scenario.gains.map(f).join(', ')} dB`);
+    console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${m.inRmsDb.toFixed(1)} → 出口 ${m.outRmsDb.toFixed(1)} dBFS`);
+    console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrWet ${p.nrWet.toFixed(2)} nrDry ${p.nrDry.toFixed(2)}　RNNoise ${p.denoiser ?? 'なし'}`);
     console.log('    出口 − 入口（入口は最も強い成分との差。−50dB 未満の帯域は測定しない）:');
     for (const b of m.bands) {
       console.log(`      ${String(b.hz).padStart(5)}Hz  期待 ${f(b.expectedDb)}dB  実測 ${f(b.measuredDb)}dB  入口 ${f(b.inputDb === null ? null : b.inputDb - m.topDb)}dB`);

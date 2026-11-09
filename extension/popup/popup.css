@@ -87,6 +87,19 @@ h1 {
   outline-offset: 2px;
 }
 
+.option {
+  justify-content: space-between;
+  padding: 6px 0 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.option small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .band {
   display: grid;
   grid-template-columns: 72px 1fr 58px;
@@ -110,7 +123,8 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-body.off #bands {
+body.off #bands,
+body.off .option {
   opacity: 0.45;
 }
 

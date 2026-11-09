@@ -1,6 +1,7 @@
 'use strict';
 
 const enabledInput = document.getElementById('enabled');
+const denoiseInput = document.getElementById('denoise');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
 
@@ -46,6 +47,7 @@ function buildBands() {
 
 function render(controls) {
   enabledInput.checked = state.enabled;
+  denoiseInput.checked = state.denoise;
   document.body.classList.toggle('off', !state.enabled);
   controls.forEach(({ input, value }, i) => {
     input.value = state.gains[i];
@@ -61,6 +63,10 @@ function render(controls) {
   enabledInput.addEventListener('change', () => {
     state.enabled = enabledInput.checked;
     render(controls);
+    Settings.save(state);
+  });
+  denoiseInput.addEventListener('change', () => {
+    state.denoise = denoiseInput.checked;
     Settings.save(state);
   });
   resetButton.addEventListener('click', () => {

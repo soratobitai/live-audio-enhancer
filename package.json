@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify:nico": "node tools/verify-niconico.js"
+    "verify:nico": "node tools/verify-niconico.js",
+    "vendor": "node tools/vendor-rnnoise.js"
   },
   "devDependencies": {
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "puppeteer-core": "^25.16.0"
   }
 }
