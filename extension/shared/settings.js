@@ -30,15 +30,15 @@ const Settings = (() => {
   // プリセットを選ぶとその値が gains に入り、スライダーを動かすと 'custom' になる
   const PRESETS = Object.freeze([
     { id: 'flat', label: 'フラット', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    { id: 'bass', label: '低音強調', gains: [5, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
-    { id: 'treble', label: '高音強調', gains: [0, 0, 0, 0, 0, 0, 1, 3, 4, 5] },
+    { id: 'bass', label: '低音強調', gains: [8, 7, 5, 2, 0, 0, 0, 0, 0, 0] },
+    { id: 'treble', label: '高音強調', gains: [0, 0, 0, 0, 0, 0, 2, 4, 6, 8] },
     { id: 'voice', label: '声を聞きやすく', gains: [-4, -3, -1, 0, 1, 2, 4, 4, 2, 0] },
     { id: 'music', label: '音楽', gains: [3, 3, 2, 0, -1, -1, 0, 1, 2, 3] },
     { id: 'movie', label: '映画', gains: [4, 3, 2, 0, -1, 1, 3, 2, 1, 1] },
     { id: 'news', label: 'ニュース', gains: [-6, -4, -2, 0, 1, 2, 3, 3, 1, -1] },
     { id: 'talk', label: 'トーク', gains: [-3, -2, 0, 1, 1, 1, 2, 2, 0, -2] },
     { id: 'game', label: 'ゲーム実況', gains: [2, 2, 0, -1, 0, 1, 3, 3, 2, 1] },
-    { id: 'night', label: '小音量・夜間', gains: [5, 4, 2, 0, 0, 0, 0, 1, 3, 4] },
+    { id: 'night', label: '小音量・夜間', gains: [7, 6, 3, 0, 0, 0, 0, 2, 4, 6] },
     { id: 'gentle', label: '耳にやさしい', gains: [0, 0, 0, 0, 0, 0, -1, -3, -4, -4] },
     { id: 'lowcut', label: '低音カット', gains: [-12, -8, -3, 0, 0, 0, 0, 0, 0, 0] },
   ]);
