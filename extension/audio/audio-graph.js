@@ -26,6 +26,25 @@ const AudioGraph = (() => {
   const RNNOISE_DIR = 'vendor/web-noise-suppressor/';
   const RNNOISE_PROCESSOR = '@sapphi-red/web-noise-suppressor/rnnoise';
   const DEEPFILTERNET_DIR = 'vendor/deepfilternet/';
+  const DEEPFILTERNET_PROCESSOR = 'workadventure-deepfilternet';
+  // DeepFilterNet3 のワークレットに渡す設定。パッケージの createDeepFilterNetAudioWorklet()（0.2.0）が既定で渡すものと同じ。
+  // パッケージの関数は使わず、ノードを自分で作る（Firefox ではパッケージの関数が渡す WebAssembly.Module をワークレットにコピーできないため）。
+  // パッケージを更新したら、この設定が変わっていないかを dist/deepfilternet.js で確かめる
+  const DEEPFILTERNET_OPTIONS = {
+    speechAttenuationDb: 25,
+    pauseGate: {
+      extraAttenuationDb: 20, lookaheadFrames: 3, hangoverFrames: 10,
+      releaseDbPerFrame: 0.6, speechAboveFloorDb: 10, maxSpeechAttenuationDb: 15,
+    },
+    bypassUntilReady: true,
+    maxLoad: 0.7,
+    loadReportAfterMs: 0,
+  };
+  const DEEPFILTERNET_READY_TIMEOUT_MS = 30000;
+  // Firefox の content script で作ったオブジェクトは、そのままではワークレットにコピーできない（DataCloneError）。
+  // cloneInto（Firefox の content script にだけある関数）でページ側にコピーしてから渡す。Chrome ではそのまま渡す
+  const CLONE_INTO = typeof cloneInto === 'function' ? cloneInto : null;
+  const toPage = (value) => (CLONE_INTO ? CLONE_INTO(value, window) : value);
   // 音量をそろえる（コンプレッサー）の強さごとの設定。
   // DynamicsCompressorNode は圧縮した分に応じて自動で持ち上げる（メイクアップゲイン）ので、大きい音は抑えられ、
   // 小さい音は大きくなる。1kHz の正弦波で測ると、入力 -50dB / -3dB に対して出力は
@@ -46,7 +65,7 @@ const AudioGraph = (() => {
   let ctx = null;
   let running = null;
   let rnnoise = null; // Promise<ArrayBuffer | null>: RNNoise の WASM。読み込めなかったら null
-  let deepfilternet = null; // Promise<module | null>: DeepFilterNet3 のモジュール。読み込めなかったら null
+  let deepfilternet = null; // Promise<{ wasmModule, modelBytes } | null>: DeepFilterNet3 の WASM とモデル。読み込めなかったら null
   let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
   const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
@@ -79,18 +98,22 @@ const AudioGraph = (() => {
     return running;
   }
 
-  // RNNoise のワークレットと WASM を読み込む（1回だけ）。
-  // ワークレット内では fetch が使えないので、WASM は content script で取得して processorOptions で渡す。
+  // 拡張内のファイルをバイト列で取得する。
+  // ワークレット内では fetch が使えないので、WASM などは content script で取得して processorOptions で渡す。
   // 拡張内のファイルは web_accessible_resources に登録してあるので、ページの CSP に関係なく読み込める。
   // YouTube では、content script からの fetch で "Unsafe attempt to load URL" というログが出るが、取得はできている。
+  async function fetchBytes(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.arrayBuffer();
+  }
+
+  // RNNoise のワークレットと WASM を読み込む（1回だけ）
   function loadRnnoise(c) {
     const url = (file) => chrome.runtime.getURL(RNNOISE_DIR + file);
     rnnoise ??= Promise.all([
       c.audioWorklet.addModule(url('rnnoise/workletProcessor.js')),
-      fetch(url('rnnoise_simd.wasm')).then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.arrayBuffer();
-      }),
+      fetchBytes(url('rnnoise_simd.wasm')),
     ]).then(
       ([, wasm]) => wasm,
       (e) => {
@@ -105,47 +128,76 @@ const AudioGraph = (() => {
     const wasmBinary = await loadRnnoise(c);
     if (!wasmBinary) return null;
     // RNNoise はチャンネルごとに処理し、maxChannels を超えたチャンネルは無音になるので、入力をステレオにそろえる
-    const node = new AudioWorkletNode(c, RNNOISE_PROCESSOR, {
+    const node = new AudioWorkletNode(c, RNNOISE_PROCESSOR, toPage({
       channelCount: 2,
       channelCountMode: 'explicit',
       channelInterpretation: 'speakers',
       processorOptions: { wasmBinary, maxChannels: 2 },
-    });
+    }));
     source.connect(node);
     // ワークレット内の RNNoise の状態を解放してから切り離す
     return { node, stop: () => { node.port.postMessage('destroy'); node.disconnect(); } };
   }
 
-  // DeepFilterNet3 は、パッケージの createDeepFilterNetAudioWorklet() で作る。
-  // ES モジュールなので動的 import で読み込む（content script は静的 import を使えない）。
-  // 入力はモノラルにまとめて処理され、出力もモノラルになる（EQ に入るところで左右に広がる）
+  // DeepFilterNet3 のワークレット・WASM・モデルを読み込む（1回だけ）。
+  // WASM は、Chrome ではコンパイル済みの WebAssembly.Module を渡す
+  // （14.6MB の WASM をワークレットの音声処理のスレッドでコンパイルさせると、音が途切れるおそれがあるため）。
+  // Firefox では WebAssembly.Module をページ側にコピーできないので、バイト列のまま渡し、ワークレットでコンパイルさせる
+  // （実測で、準備ができるまで約0.3秒）
+  function loadDeepFilterNet(c) {
+    const url = (file) => chrome.runtime.getURL(DEEPFILTERNET_DIR + file);
+    deepfilternet ??= Promise.all([
+      c.audioWorklet.addModule(url('assets/deepfilternet-worklet-processor.js')),
+      fetchBytes(url('assets/deepfilternet/df_bg.wasm')).then((bytes) => (CLONE_INTO ? bytes : WebAssembly.compile(bytes))),
+      fetchBytes(url('assets/deepfilternet/DeepFilterNet3_onnx.tar.gz')),
+    ]).then(
+      ([, wasmModule, modelBytes]) => ({ wasmModule, modelBytes }),
+      (e) => {
+        console.warn('[audio-fx] DeepFilterNet3 を読み込めませんでした', e);
+        return null;
+      },
+    );
+    return deepfilternet;
+  }
+
+  // DeepFilterNet3 は、入力をモノラルにまとめて処理し、モノラルで出す（EQ に入るところで左右に広がる）。
+  // 準備ができるまでは入力をそのまま出す（bypassUntilReady）ので、準備ができてから出力に切り替える
   async function createDeepFilterNet(c, source) {
-    deepfilternet ??= import(chrome.runtime.getURL(DEEPFILTERNET_DIR + 'deepfilternet.js')).catch((e) => {
-      console.warn('[audio-fx] DeepFilterNet3 を読み込めませんでした', e);
-      return null;
+    const assets = await loadDeepFilterNet(c);
+    if (!assets) return null;
+    const node = new AudioWorkletNode(c, DEEPFILTERNET_PROCESSOR, toPage({
+      channelCount: 1,
+      channelCountMode: 'explicit',
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      processorOptions: { ...assets, ...DEEPFILTERNET_OPTIONS },
+    }));
+    const stop = () => {
+      node.port.postMessage(toPage({ type: 'dispose' }));
+      node.disconnect();
+    };
+    source.connect(node);
+    const failure = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve('準備が時間内に終わりませんでした'), DEEPFILTERNET_READY_TIMEOUT_MS);
+      const finish = (reason) => {
+        clearTimeout(timer);
+        resolve(reason);
+      };
+      node.port.onmessage = ({ data }) => {
+        if (data?.type === 'ready') finish(null);
+        else if (data?.type === 'error') finish(data.message);
+        else if (data?.type === 'overload') console.warn('[audio-fx] DeepFilterNet3 の処理が間に合っていません', data.load);
+      };
+      node.onprocessorerror = () => finish('ワークレットでエラーが起きました');
     });
-    const module = await deepfilternet;
-    if (!module) return null;
-    let worklet = null;
-    try {
-      // モジュールは既定ではワークレット・WASM・モデルの URL を import.meta.url から作るが、それは拡張の固定 URL になり、
-      // use_dynamic_url を有効にしているとページから取得できない。getURL の動的 URL を明示的に渡す
-      const url = (file) => chrome.runtime.getURL(DEEPFILTERNET_DIR + file);
-      worklet = await module.createDeepFilterNetAudioWorklet(c, {
-        moduleUrl: url('assets/deepfilternet-worklet-processor.js'),
-        wasmUrl: url('assets/deepfilternet/df_bg.wasm'),
-        modelUrl: url('assets/deepfilternet/DeepFilterNet3_onnx.tar.gz'),
-        onOverload: (load) => console.warn('[audio-fx] DeepFilterNet3 の処理が間に合っていません', load),
-      });
-      // 準備ができるまでは入力をそのまま出す（bypassUntilReady）。準備ができてから出力に切り替える
-      source.connect(worklet.node);
-      await worklet.ready;
-      return { node: worklet.node, stop: () => worklet.dispose() };
-    } catch (e) {
-      worklet?.dispose();
-      console.warn('[audio-fx] DeepFilterNet3 を使えませんでした', e);
+    if (failure) {
+      source.disconnect(node);
+      stop();
+      console.warn('[audio-fx] DeepFilterNet3 を使えませんでした', failure);
       return null;
     }
+    return { node, stop };
   }
 
   // ノイズキャンセルの方式ごとの作り方。create(c, source) は、source につないで使える状態にしたノードと、

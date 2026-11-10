@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { SITES, PICK_VIDEO, sleep, findBroadcasts } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION = path.join(ROOT, 'extension');
@@ -46,33 +47,6 @@ const SCENARIOS = [
   { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
   { ...BASE, name: 'すべて無効に戻す（EQ だけ有効）', engine: 'deepfilternet', gains: GAINS_A },
 ];
-
-// サイトごとの配信の探し方。list のページを開き、links で配信ページの URL を集める
-const SITES = {
-  nico: {
-    list: 'https://live.nicovideo.jp/',
-    links: (as) => as.map((a) => a.href.split('?')[0]).filter((u) => /\/watch\/lv\d+$/.test(u)),
-  },
-  kick: {
-    list: 'https://kick.com/',
-    // チャンネルページは /<チャンネル名>。カテゴリなど1階層のページを除く
-    links: (as) => as.map((a) => a.href.split('?')[0])
-      .filter((u) => /^https:\/\/kick\.com\/[\w-]+$/.test(u))
-      .filter((u) => !/\/(browse|following|categories|category|events|leaderboards|kickbounties|search)$/.test(u)),
-  },
-  youtube: {
-    // ライブ配信で絞り込んだ検索結果（sp はライブ配信の絞り込み条件）
-    list: 'https://www.youtube.com/results?search_query=live&sp=EgJAAQ%253D%253D',
-    // 検索結果のリンクには &pp=... などが付くので、動画 ID だけを取り出して URL を組み立て直す
-    links: (as) => as.map((a) => a.href.match(/^https:\/\/www\.youtube\.com\/watch\?v=([\w-]+)/)?.[1])
-      .filter(Boolean).map((id) => `https://www.youtube.com/watch?v=${id}`),
-  },
-};
-
-// 判定に使う video 要素。広告用などの見えない要素を避けて、表示サイズがいちばん大きいものを選ぶ
-const PICK_VIDEO = `[...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]`;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 拡張の isolated world に測定用の関数を用意する。
 // 接続済みのグラフ（attach はキャッシュ済みの Promise を返す）の入口と出口に AnalyserNode を付け、
@@ -164,18 +138,6 @@ const INSTALL_PROBE = `(async () => {
   };
   return true;
 })()`;
-
-async function findBroadcasts(browser, site) {
-  const page = await browser.newPage();
-  try {
-    await page.goto(site.list, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await sleep(8000);
-    const hrefs = await page.$$eval('a[href]', (as) => as.map((a) => ({ href: a.href })));
-    return [...new Set(site.links(hrefs))];
-  } finally {
-    await page.close();
-  }
-}
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
@@ -300,8 +262,9 @@ function judgeRun({ scenario, m }) {
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
     const limit = AUTO_LIMITS[scenario.autoStrength];
     if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
-    // フィルタのゲインは時定数1秒でゆっくり追いかけるので、少しの差は許す
-    if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 0.5))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
+    // 補正量は毎秒計算し直され、フィルタのゲインはそれを時定数1秒で追いかける。
+    // 内容がよく変わる番組では補正量が1秒に0.5dB以上動くこともあるので、1.5dB までの差は許す
+    if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 1.5))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
   } else {
     if (p.auto) return { ok: false, reason: 'オートEQ の分析が止まっていない' };
     if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };

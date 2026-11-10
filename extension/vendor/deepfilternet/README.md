@@ -5,12 +5,15 @@
 
 | ファイル | 内容 |
 |---|---|
-| `deepfilternet.js` | `createDeepFilterNetAudioWorklet()` を持つ ES モジュール（content script から動的 import する） |
 | `assets/deepfilternet-worklet-processor.js` | AudioWorkletProcessor（`workadventure-deepfilternet` を登録する） |
 | `assets/deepfilternet/df_bg.wasm` | libDF の WASM |
 | `assets/deepfilternet/DeepFilterNet3_onnx.tar.gz` | DeepFilterNet3 のモデル（gzip のまま渡す） |
 
-`deepfilternet.js` は、ワークレット・WASM・モデルの URL を自分の URL（`import.meta.url`）からの相対パスで決めるので、この構成を崩さないこと。
+パッケージの `createDeepFilterNetAudioWorklet()`（`dist/deepfilternet.js`）は使わず、
+`extension/audio/audio-graph.js` でノードを自分で作っている。
+Firefox では、この関数がワークレットに渡す `WebAssembly.Module` をページ側にコピーできないため。
+ワークレットに渡す設定（`DEEPFILTERNET_OPTIONS`）はこの関数の既定値と同じにしているので、
+パッケージを更新したら `dist/deepfilternet.js` の設定が変わっていないかを確かめる。
 
 ## ライセンス
 

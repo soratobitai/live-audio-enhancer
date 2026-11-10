@@ -31,7 +31,6 @@ const PACKAGES = [
     dir: 'deepfilternet',
     files: {
       'LICENSE': 'LICENSE',
-      'dist/deepfilternet.js': 'deepfilternet.js',
       'dist/assets/deepfilternet-worklet-processor.js': 'assets/deepfilternet-worklet-processor.js',
       'dist/assets/deepfilternet/df_bg.wasm': 'assets/deepfilternet/df_bg.wasm',
       'dist/assets/deepfilternet/DeepFilterNet3_onnx.tar.gz': 'assets/deepfilternet/DeepFilterNet3_onnx.tar.gz',
