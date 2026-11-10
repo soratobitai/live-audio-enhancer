@@ -7,6 +7,8 @@
     "verify:kick": "node tools/verify.js kick",
     "verify:youtube": "node tools/verify.js youtube",
     "verify:twitch": "node tools/verify.js twitch",
+    "verify:tver": "node tools/verify.js tver",
+    "verify:abema": "node tools/verify.js abema",
     "verify:firefox": "node tools/verify-firefox.js",
     "vendor": "node tools/vendor.js"
   },

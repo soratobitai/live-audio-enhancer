@@ -4,7 +4,7 @@
 // EQ・バイパス・ノイズキャンセルが設定どおりに効いているかを数値で判定する。
 //
 // 使い方:
-//   npm run verify:nico / verify:kick / verify:youtube     サイトのページから配信を選んで試す
+//   npm run verify:<nico / kick / youtube / twitch / tver / abema>   サイトのページから配信を選んで試す
 //   npm run verify:kick -- https://kick.com/xxxx           URL を指定して試す
 //   Chrome の場所が違うときは環境変数 CHROME_PATH で指定する
 import fs from 'node:fs';
@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { SITES, PICK_VIDEO, sleep, findBroadcasts } from './sites.js';
+import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION = path.join(ROOT, 'extension');
@@ -203,6 +203,13 @@ async function check(browser, extId, url) {
     if (!center) return { url, title, skip: 'video 要素がない' };
     await page.mouse.click(center.x, center.y);
     await sleep(1000);
+    // 再生の前に出るダイアログを閉じる（TVer のアンケート）
+    const dismiss = siteOf(url)?.dismiss;
+    if (dismiss) {
+      await sleep(3000);
+      await page.evaluate(dismiss);
+      await sleep(1000);
+    }
     await page.evaluate(`(() => {
       const v = ${PICK_VIDEO};
       v.muted = false;
@@ -210,6 +217,7 @@ async function check(browser, extId, url) {
       if (v.paused) v.play().catch(() => {});
     })()`);
     await sleep(5000);
+    await waitPlaying(page, 10000);
 
     const video = await page.evaluate(`(() => {
       const v = ${PICK_VIDEO};

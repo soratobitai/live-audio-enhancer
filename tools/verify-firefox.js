@@ -6,7 +6,7 @@
 // （スピーカーからはほぼ聞こえない）。そのため、小さい音を分析に入れないオートEQ は、ここでは確かめない。
 //
 // 使い方:
-//   npm run verify:firefox -- nico | kick | youtube | twitch   サイトのページから配信を選んで試す
+//   npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema>   サイトのページから配信を選んで試す
 //   npm run verify:firefox -- https://kick.com/xxxx        URL を指定して試す
 //   Firefox の場所が違うときは環境変数 FIREFOX_PATH で指定する
 import fs from 'node:fs';
@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { SITES, PICK_VIDEO, sleep, findBroadcasts } from './sites.js';
+import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIREFOX = process.env.FIREFOX_PATH || 'C:/Program Files/Mozilla Firefox/firefox.exe';
@@ -105,6 +105,13 @@ async function check(browser, url) {
     // クリックでユーザー操作の扱いにしてから、ミュートを解除して再生する（音量は小さくする）
     await page.mouse.click(center.x, center.y);
     await sleep(1000);
+    // 再生の前に出るダイアログを閉じる（TVer のアンケート）
+    const dismiss = siteOf(url)?.dismiss;
+    if (dismiss) {
+      await sleep(3000);
+      await page.evaluate(dismiss);
+      await sleep(1000);
+    }
     await page.evaluate(`(() => {
       const v = ${PICK_VIDEO};
       v.muted = false;
@@ -112,6 +119,7 @@ async function check(browser, url) {
       if (v.paused) v.play().catch(() => {});
     })()`);
     await sleep(5000);
+    await waitPlaying(page, 10000);
     if (await page.evaluate(`(${PICK_VIDEO}).paused`)) return { url, title, skip: '再生されない（放送前など）' };
 
     const results = [];
@@ -198,7 +206,12 @@ async function main() {
     browser: 'firefox',
     executablePath: FIREFOX,
     headless: true,
-    extraPrefsFirefox: { 'media.autoplay.default': 0 },
+    extraPrefsFirefox: {
+      'media.autoplay.default': 0,
+      // Puppeteer は既定で Widevine（DRM の再生モジュール）のダウンロードを止めている。
+      // DRM を使うサイト（ABEMA）は、これがないと再生できない
+      'media.gmp-manager.updateEnabled': true,
+    },
     // 拡張のページ（ポップアップの画面）は Firefox の内部扱いなので、操作するにはこの指定が要る
     env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: '1' },
   });

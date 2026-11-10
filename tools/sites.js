@@ -19,6 +19,19 @@ export const SITES = {
       .filter((u) => /^https:\/\/www\.twitch\.tv\/\w+$/.test(u))
       .filter((u) => !/\/(directory|search|settings|downloads|jobs|turbo|p|store|subscriptions|drops|wallet|inventory|friends|messages|login|signup|prime)$/.test(u)),
   },
+  tver: {
+    // 見逃し配信のエピソードページ（/episodes/<ID>）
+    list: 'https://tver.jp/',
+    links: (as) => as.map((a) => a.href.split('?')[0]).filter((u) => /^https:\/\/tver\.jp\/episodes\/\w+$/.test(u)),
+    // 初めて再生するときにアンケート（誕生年・性別・郵便番号）が出て、回答するまで再生されない。
+    // 検証では回答せずに閉じ、スクリプトから再生する（閉じたあとに再生ボタンを押すと、またアンケートが出る）
+    dismiss: `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '閉じる')?.click()`,
+  },
+  abema: {
+    // 放送中のチャンネルのページ（/now-on-air/<チャンネル>）
+    list: 'https://abema.tv/',
+    links: (as) => as.map((a) => a.href.split('?')[0]).filter((u) => /^https:\/\/abema\.tv\/now-on-air\/[\w-]+$/.test(u)),
+  },
   youtube: {
     // ライブ配信で絞り込んだ検索結果（sp はライブ配信の絞り込み条件）
     list: 'https://www.youtube.com/results?search_query=live&sp=EgJAAQ%253D%253D',
@@ -28,10 +41,22 @@ export const SITES = {
   },
 };
 
+// URL のサイト。URL を指定して検証するときも、サイトごとの手順（dismiss）を使うため
+export const siteOf = (url) => Object.values(SITES).find((s) => new URL(s.list).host === new URL(url).host);
+
 // 判定に使う video 要素。広告用などの見えない要素を避けて、表示サイズがいちばん大きいものを選ぶ
 export const PICK_VIDEO = `[...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]`;
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 動画の再生が始まるまで、最長 timeout ミリ秒待つ。
+// TVer は、トップページを開いたあとだと、play() から数秒止まったままになることがある（広告の準備と考えている）
+export async function waitPlaying(page, timeout) {
+  for (let t = 0; t < timeout; t += 1000) {
+    if (await page.evaluate(`!(${PICK_VIDEO}).paused`)) return;
+    await sleep(1000);
+  }
+}
 
 export async function findBroadcasts(browser, site) {
   const page = await browser.newPage();

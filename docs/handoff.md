@@ -1,6 +1,6 @@
 # ライブ配信音声エフェクト Chrome拡張 引き継ぎメモ
 
-最終更新：2026-11-10（拡張 v0.11.0）
+最終更新：2026-11-10（拡張 v0.12.0）
 
 ## 目的
 
@@ -11,11 +11,13 @@
   2. YouTube（ライブと通常動画の両方）：対応済み
   3. Kick：対応済み
   4. Twitch：対応済み
+  5. TVer（見逃し配信とリアルタイム配信）：対応済み
+  6. ABEMA（放送中のチャンネルとビデオ）：対応済み
 
 ## 方針（2026-11-10に決めたこと）
 
-- **対象サイトは限定し、主要な動画サイトを1つずつ足す**（候補：TVer、ABEMAなど）。すべてのサイトで有効にすることはしない
-  - 理由：サイトが自前で`createMediaElementSource`を使っていると、先に接続してサイトのプレイヤーを壊すおそれがある。DRM付きの動画で無音になるおそれがある（未確認）。SNSのタイムラインなどで多数の動画に接続してCPUを使う。全サイトの権限は警告が強く、公開時の審査も厳しい
+- **対象サイトは限定し、主要な動画サイトを1つずつ足す**（次の候補は未定）。すべてのサイトで有効にすることはしない
+  - 理由：サイトが自前で`createMediaElementSource`を使っていると、先に接続してサイトのプレイヤーを壊すおそれがある。DRM付きの動画で無音になるおそれがある（ABEMAのDRMでは音が取れたが、すべてのDRMで取れるかは分からない）。SNSのタイムラインなどで多数の動画に接続してCPUを使う。全サイトの権限は警告が強く、公開時の審査も厳しい
 - **当面は自分用。形が整ったら一般公開も考える**（「公開に向けて」を参照）
 - **Firefoxにも対応する**（「Firefox対応」を参照）
 
@@ -40,12 +42,14 @@
 | 15 | 低音強調・高音強調・小音量・夜間のプリセットを強める | 完了 |
 | 16 | Firefoxに対応する | 完了（自動検証で確認。実機での常用には署名が必要） |
 | 17 | Twitchに対応する | 完了 |
+| 18 | TVerに対応する | 完了 |
+| 19 | ABEMAに対応する | 完了 |
 
 ディレイ拡張との同時動作の確認（当初のステップ6）は、対象外になった。
 
 ### 予定
 
-- 次のサイトの追加（TVer、ABEMAなど）。手順は「サイトの追加の手順」を参照
+- 次のサイトの追加（候補は未定）。手順は「サイトの追加の手順」を参照
 - オートEQの調整：聞いてみて、目安の形・補正の強さ・帯域ごとの上限を決める（「オートEQ（試作）」を参照）
 - プリセットの値の調整：今の値は聞いて調整する前提の初期値
 - Firefoxで常用するための署名（「Firefox対応」を参照）
@@ -82,7 +86,7 @@ audio-fx/
 │  ├─ verify.js                Chromeでの自動検証
 │  ├─ verify-firefox.js        Firefoxでの自動検証
 │  ├─ firefox-probe.js         Firefoxの検証で、拡張のコピーにだけ足すテスト用content script
-│  ├─ sites.js                 自動検証で使う、サイトごとの配信の探し方（ChromeとFirefoxで共通）
+│  ├─ sites.js                 自動検証で使う、サイトごとの配信の探し方と再生前の手順（ChromeとFirefoxで共通）
 │  └─ vendor.js                ノイズキャンセルのパッケージからvendor/へファイルをコピー
 └─ docs/handoff.md             このメモ
 ```
@@ -91,8 +95,8 @@ audio-fx/
 
 | コマンド | 内容 |
 |---|---|
-| `npm run verify:nico` / `verify:kick` / `verify:youtube` / `verify:twitch` | Chromeで、サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
-| `npm run verify:firefox -- <nico / kick / youtube / twitch / URL>` | Firefoxで自動検証する |
+| `npm run verify:nico` / `verify:kick` / `verify:youtube` / `verify:twitch` / `verify:tver` / `verify:abema` | Chromeで、サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
+| `npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema / URL>` | Firefoxで自動検証する |
 | `npm run vendor` | ノイズキャンセルのパッケージから`extension/vendor/`へファイルをコピーし直す |
 
 - `npm run vendor`のファイルの取り方は、パッケージによって違う
@@ -132,7 +136,7 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 - **AudioContextがrunningになってから接続する**：自動再生ポリシーでsuspendedのまま接続すると無音になる。`pointerdown`と`keydown`のたびに`resume()`を再試行する
 - **AudioContextは48kHzで作る**：RNNoiseもDeepFilterNet3も48kHz前提のため
 - **再生開始を`playing`イベントで拾う**：`document`でキャプチャフェーズのリスナーを使う（メディアイベントはバブリングしない）。MutationObserverや`yt-navigate-finish`は使っていない
-- DRM（EME）付きのコンテンツは対象外（未検証）
+- DRM（EME）付きのコンテンツ：ABEMA（ChromeとFirefoxのWidevine）では音が取れ、EQも効いた。ほかのDRM（ハードウェアで復号するものなど）で取れるかは分からない
 
 ### 方式B（未実装）：`chrome.tabCapture`でタブ音声をキャプチャする
 
@@ -151,12 +155,14 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 | YouTube | `blob:`（MSE）。SPAでvideo要素が使い回されるが、`WeakMap`で二重接続を防いでいる | 対応済み・自動検証OK（SPA遷移後の動作は未確認） |
 | Kick | Amazon IVSのプレイヤー。ChromeではWorker内のMSEを`srcObject`（`MediaSourceHandle`）で渡し、`currentSrc`は空。Firefoxでは`blob:`。ミュートで自動再生される。広告用の`static.kick.com/ads/*.mp4`は別オリジンなので接続しない | 対応済み・自動検証OK |
 | Twitch | Kickと同じAmazon IVSのプレイヤー。Chromeでは`MediaSourceHandle`、Firefoxでは`blob:`。DRMなし、トップフレーム、音ありで自動再生される | 対応済み・自動検証OK（2026-11-10） |
+| TVer | `blob:`（MSE）。DRMなし、トップフレーム。見逃し配信（`/episodes/<ID>`）は自動再生されず、初めて再生するときにアンケート（誕生年・性別・郵便番号）が出て、回答するまで再生されない。リアルタイム配信（`/live/<局>`。例：`/live/tx`はテレ東）は、アンケートなしで音ありで自動再生される。広告用らしいvideo要素が2つあるが、ソースは空だった | 対応済み・自動検証OK（2026-11-10。見逃し配信とリアルタイム配信） |
+| ABEMA | `blob:`（MSE）で、DRM（EME、Widevine）付き。それでも音が取れ、EQも効く。トップフレーム。放送中のチャンネル（`/now-on-air/<チャンネル>`）は音ありで自動再生される。ビデオ（`/video/episode/<ID>`）は、最初に「あとで / 回答する」の案内が出て、本編の前に広告が流れる。広告は別のvideo要素で、別オリジンのmp4（`chesterstream.akamaized.net`）なので接続しない。広告が終わると本編の要素が再生される。Firefoxは推奨環境外と表示されるが、再生できる | 対応済み・自動検証OK（2026-11-10。放送中のチャンネル。ビデオはChromeで1回だけ確認） |
 
 ### サイトの追加の手順
 
 1. 再生方式を調べる：`currentSrc`が`blob:`か、`srcObject`が`MediaSourceHandle`か、DRM（`video.mediaKeys`）があるか、video要素がiframeの中にあるか。下の「手動確認」のコードが使える
 2. `extension/manifest.json`の`content_scripts`と`web_accessible_resources`の`matches`に、サイトを追加する
-3. `tools/sites.js`に、そのサイトで配信を探す方法を足し、`package.json`に`verify:<サイト>`を足す
+3. `tools/sites.js`に、そのサイトで配信を探す方法を足し、`package.json`に`verify:<サイト>`を足す。再生の前に閉じるダイアログがあれば、`dismiss`に閉じる処理を書く（TVerのアンケートを参照）
 4. `npm run verify:<サイト>`（Chrome）と`npm run verify:firefox -- <サイト>`（Firefox）を実行する
 5. このメモの「サイト別の状況」に記録する
 
@@ -384,7 +390,12 @@ EQやオートEQで持ち上げても0dBFSを超えて音割れしないよう�
 - YouTubeは、何本かの配信で途中から動画が止まって測れなかった。止まらなかった配信でOKを確認した
 - 止まる原因は、下の「自動再生」を参照
 
-2026-11-10に、Twitchも12パターンすべてOK（`MediaSourceHandle`で再生）。
+2026-11-10に、Twitchも12パターンすべてOK（`MediaSourceHandle`で再生）。TVer（見逃し配信とリアルタイム配信）とABEMA（放送中のチャンネル）も12パターンすべてOK。
+
+- **TVerのアンケート**：検証では回答せず、「閉じる」で閉じてから、スクリプトで`play()`を呼んで再生する（`sites.js`の`dismiss`）。閉じたあとに再生ボタンを押すと、またアンケートが出る
+- **TVerの再生開始**：トップページを開いたあとだと、`play()`から約5秒、プレイヤーが動画を止めたままにする（広告の準備と考えている）。そのため、再生が始まるまで最大10秒待つ（`waitPlaying`）
+- **TVerで1回だけ出たNG**：オートEQのゲインが補正量に追いつかない（ドラマ）、EQの周波数特性が1.5dB以上ずれる（リアルタイム配信）が、それぞれ1回あった。測り直すとOKだった
+- **ABEMAのビデオ**：本編の前に広告が流れ、検証ツールのクリックが広告に当たるので、検証ツールには入れていない。別のスクリプトで、広告が終わってから本編をクリックし、拡張がつながってEQが効くことを1回だけ確かめた（62Hz：期待−6dB → 実測−5.5dB、4kHz：期待+4dB → 実測+3.8dB）
 
 ### Firefoxの自動検証（`tools/verify-firefox.js`）
 
@@ -401,7 +412,9 @@ Chromeの検証との違い：
 - **音量**：ミュートせず、動画の音量を0.01にして測る（下の「Firefox対応」を参照）。そのため、小さい音を分析に入れないオートEQは確かめていない
 - **ポップアップ**：BiDiでは拡張の内部URL（`moz-extension://`）を開けないので、コピーに足したバックグラウンドスクリプトが、ポップアップの画面をタブで開く。この画面を操作するには、環境変数`MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`が要る
 
-2026-11-10の時点で、ニコ生・YouTube・Kick・Twitchの4サイトとも、すべてOK（Firefox 159.0.1）。
+2026-11-10の時点で、ニコ生・YouTube・Kick・Twitch・TVer・ABEMAの6サイトとも、すべてOK（Firefox 159.0.1）。
+
+- **Widevine**：Puppeteerは既定でWidevine（DRMの再生モジュール）のダウンロードを止めている（`media.gmp-manager.updateEnabled: false`）。これだとABEMAは「表示に失敗しました」になるので、検証ツールではこの設定を有効に戻している。普段使いのFirefoxでは自動でダウンロードされる
 
 ### 実際に聞いての確認
 
@@ -471,6 +484,8 @@ ctx.resume();
   - 拡張のせいではない。ノイズキャンセルを有効にした場合（38秒）と、何もしない場合（39秒）で同じように起きた
   - 広告表示中の印（`#movie_player.ad-showing`）は付いていなかった
 - Twitch：音ありで自動再生される
+- TVer：見逃し配信は自動再生されない（アンケートの回答が必要）。リアルタイム配信は音ありで自動再生される
+- ABEMA：放送中のチャンネルは音ありで自動再生される。ビデオは広告のあとで本編が自動で始まる
 
 ## Firefox対応
 
@@ -584,6 +599,11 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
 - DeepFilterNet3の遅延（約71ms）で、映像と音声のずれが気にならないか
 - YouTubeで出る`Unsafe attempt to load URL`のログ。消すなら、service worker経由でWASMを取得する
 - TypeScript 7系でJSDocによる型チェックがどこまでできるかは未確認（型チェックを導入するときに確認する）
+- TVerとABEMAで未確認のこと
+  - 実際に耳で聞いての確認
+  - 広告のあいだと、広告から本編に戻ったときの動作（TVerは、アンケートに回答しないと広告も本編も流れないので、自動検証では広告を通していない）
+  - ログインした状態での動作
+  - ABEMAのビデオをFirefoxで再生したときの動作
 - Firefoxで常用するための署名（「Firefox対応」を参照）
 - Firefoxで未確認のこと
   - 実際に耳で聞いての確認
