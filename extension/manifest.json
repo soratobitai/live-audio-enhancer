@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Audio FX",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "ライブ配信の音声にイコライザーとノイズキャンセルをかける",
   "permissions": ["storage"],
   "action": {
@@ -13,7 +13,8 @@
       "matches": [
         "https://live.nicovideo.jp/*",
         "https://www.youtube.com/*",
-        "https://kick.com/*"
+        "https://kick.com/*",
+        "https://www.twitch.tv/*"
       ],
       "js": ["shared/settings.js", "audio/auto-eq.js", "audio/audio-graph.js", "content/main.js"],
       "run_at": "document_idle"
@@ -25,7 +26,8 @@
       "matches": [
         "https://live.nicovideo.jp/*",
         "https://www.youtube.com/*",
-        "https://kick.com/*"
+        "https://kick.com/*",
+        "https://www.twitch.tv/*"
       ],
       "use_dynamic_url": true
     }

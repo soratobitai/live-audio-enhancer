@@ -12,6 +12,13 @@ export const SITES = {
       .filter((u) => /^https:\/\/kick\.com\/[\w-]+$/.test(u))
       .filter((u) => !/\/(browse|following|categories|category|events|leaderboards|kickbounties|search)$/.test(u)),
   },
+  twitch: {
+    list: 'https://www.twitch.tv/directory/all',
+    // チャンネルページは /<チャンネル名>。一覧や設定など1階層のページを除く
+    links: (as) => as.map((a) => a.href.split('?')[0])
+      .filter((u) => /^https:\/\/www\.twitch\.tv\/\w+$/.test(u))
+      .filter((u) => !/\/(directory|search|settings|downloads|jobs|turbo|p|store|subscriptions|drops|wallet|inventory|friends|messages|login|signup|prime)$/.test(u)),
+  },
   youtube: {
     // ライブ配信で絞り込んだ検索結果（sp はライブ配信の絞り込み条件）
     list: 'https://www.youtube.com/results?search_query=live&sp=EgJAAQ%253D%253D',
