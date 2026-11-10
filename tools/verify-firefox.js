@@ -6,7 +6,7 @@
 // （スピーカーからはほぼ聞こえない）。そのため、小さい音を分析に入れないオートEQ は、ここでは確かめない。
 //
 // 使い方:
-//   npm run verify:firefox -- nico | kick | youtube        サイトのページから配信を選んで試す
+//   npm run verify:firefox -- nico | kick | youtube | twitch   サイトのページから配信を選んで試す
 //   npm run verify:firefox -- https://kick.com/xxxx        URL を指定して試す
 //   Firefox の場所が違うときは環境変数 FIREFOX_PATH で指定する
 import fs from 'node:fs';

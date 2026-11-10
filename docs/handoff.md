@@ -1,15 +1,23 @@
 # ライブ配信音声エフェクト Chrome拡張 引き継ぎメモ
 
-最終更新：2026-11-09（拡張 v0.9.0）
+最終更新：2026-11-10（拡張 v0.11.0）
 
 ## 目的
 
-ライブ配信の音声に、リアルタイムでイコライザーとノイズキャンセルをかけるChrome拡張（Manifest V3）を作る。
+ライブ配信の音声に、リアルタイムでイコライザーとノイズキャンセルをかけるブラウザ拡張（Manifest V3）を作る。ChromeとFirefoxに対応する。
 
-- 対象サイトの優先度
+- 対象サイト
   1. ニコニコ生放送（必須）：対応済み
   2. YouTube（ライブと通常動画の両方）：対応済み
   3. Kick：対応済み
+  4. Twitch：対応済み
+
+## 方針（2026-11-10に決めたこと）
+
+- **対象サイトは限定し、主要な動画サイトを1つずつ足す**（候補：TVer、ABEMAなど）。すべてのサイトで有効にすることはしない
+  - 理由：サイトが自前で`createMediaElementSource`を使っていると、先に接続してサイトのプレイヤーを壊すおそれがある。DRM付きの動画で無音になるおそれがある（未確認）。SNSのタイムラインなどで多数の動画に接続してCPUを使う。全サイトの権限は警告が強く、公開時の審査も厳しい
+- **当面は自分用。形が整ったら一般公開も考える**（「公開に向けて」を参照）
+- **Firefoxにも対応する**（「Firefox対応」を参照）
 
 ## 現在の状態
 
@@ -30,17 +38,22 @@
 | 13 | 音割れ防止のリミッター | 完了 |
 | 14 | オートEQを大胆にし、強さを控えめ・標準・強めから選べるようにする | 完了（聞いての調整はこれから） |
 | 15 | 低音強調・高音強調・小音量・夜間のプリセットを強める | 完了 |
+| 16 | Firefoxに対応する | 完了（自動検証で確認。実機での常用には署名が必要） |
+| 17 | Twitchに対応する | 完了 |
 
 ディレイ拡張との同時動作の確認（当初のステップ6）は、対象外になった。
 
 ### 予定
 
+- 次のサイトの追加（TVer、ABEMAなど）。手順は「サイトの追加の手順」を参照
 - オートEQの調整：聞いてみて、目安の形・補正の強さ・帯域ごとの上限を決める（「オートEQ（試作）」を参照）
 - プリセットの値の調整：今の値は聞いて調整する前提の初期値
+- Firefoxで常用するための署名（「Firefox対応」を参照）
 
 ### 使い方
 
-- `chrome://extensions`でデベロッパーモードをオンにし、「パッケージ化されていない拡張機能を読み込む」で`extension/`フォルダを選ぶ
+- Chrome：`chrome://extensions`でデベロッパーモードをオンにし、「パッケージ化されていない拡張機能を読み込む」で`extension/`フォルダを選ぶ
+- Firefox：`about:debugging`の「このFirefox」→「一時的なアドオンを読み込む」で`extension/manifest.json`を選ぶ。Firefoxを再起動すると消える
 - 拡張アイコンのポップアップで、次の設定を変える
   - 全体のON/OFF
   - ノイズキャンセルのON/OFFと方式（RNNoise / DeepFilterNet3）
@@ -64,9 +77,12 @@ audio-fx/
 │  ├─ popup/                   ポップアップのUI
 │  └─ vendor/
 │     ├─ web-noise-suppressor/  RNNoiseのワークレットとWASM、ライセンス文
-│     └─ deepfilternet/         DeepFilterNet3のモジュール・ワークレット・WASM・モデル、ライセンス文
+│     └─ deepfilternet/         DeepFilterNet3のワークレット・WASM・モデル、ライセンス文
 ├─ tools/
-│  ├─ verify.js                実ブラウザでの自動検証
+│  ├─ verify.js                Chromeでの自動検証
+│  ├─ verify-firefox.js        Firefoxでの自動検証
+│  ├─ firefox-probe.js         Firefoxの検証で、拡張のコピーにだけ足すテスト用content script
+│  ├─ sites.js                 自動検証で使う、サイトごとの配信の探し方（ChromeとFirefoxで共通）
 │  └─ vendor.js                ノイズキャンセルのパッケージからvendor/へファイルをコピー
 └─ docs/handoff.md             このメモ
 ```
@@ -75,7 +91,8 @@ audio-fx/
 
 | コマンド | 内容 |
 |---|---|
-| `npm run verify:nico` / `verify:kick` / `verify:youtube` | サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
+| `npm run verify:nico` / `verify:kick` / `verify:youtube` / `verify:twitch` | Chromeで、サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
+| `npm run verify:firefox -- <nico / kick / youtube / twitch / URL>` | Firefoxで自動検証する |
 | `npm run vendor` | ノイズキャンセルのパッケージから`extension/vendor/`へファイルをコピーし直す |
 
 - `npm run vendor`のファイルの取り方は、パッケージによって違う
@@ -103,12 +120,12 @@ audio-fx/
 
 ### 方式A（採用）：`<video>`要素をWeb Audio APIでフックする
 
-content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エフェクトを通してから`ctx.destination`に出力する。ニコ生・YouTube・Kickのすべてで動作を確認した。
+content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エフェクトを通してから`ctx.destination`に出力する。ニコ生・YouTube・Kick・Twitchのすべてで、ChromeとFirefoxの両方で動作を確認した。
 
 実装上の決まりごと：
 - **接続する要素を限定する**：別オリジンのメディアをCORSなしで再生している要素に接続すると、出力が無音になる。そのため、ページ自身がデータを用意している要素だけに接続する（`canAttach`）
   - `currentSrc`が`blob:`のもの（MSE）
-  - `srcObject`が`MediaSourceHandle`のもの（Worker内のMSE。Kick）
+  - `srcObject`が`MediaSourceHandle`のもの（Worker内のMSE。ChromeのKick・Twitch）
 - **二重接続を防ぐ**：`createMediaElementSource()`は同じ要素に1回しか呼べない。接続済みの要素は`WeakMap`で管理する
 - **無効のあいだは接続しない**：接続すると、リロードするまで元に戻せないため
 - **バイパスはつなぎ替えで行う**：接続後はグラフを切らず、wet/dryのゲインのクロスフェードで切り替える。値は`setTargetAtTime`（時定数20ms）で変え、プツッというノイズを防ぐ
@@ -119,7 +136,7 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 
 ### 方式B（未実装）：`chrome.tabCapture`でタブ音声をキャプチャする
 
-3サイトとも方式Aで対応できたため、実装していない。方式Aが使えないサイトに対応するときの代替案として残す。
+対象サイトはすべて方式Aで対応できたため、実装していない。方式Aが使えないサイトに対応するときの代替案として残す。
 
 - service workerで`chrome.tabCapture.getMediaStreamId()`を取得する
 - offscreen documentで`getUserMedia({ audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId } } })`を使ってストリームを受け取る
@@ -132,7 +149,16 @@ content scriptで`AudioContext.createMediaElementSource(video)`を呼び、エ�
 |---|---|---|
 | ニコ生 | `blob:`（MSE）。video要素はトップフレームにある。自動再生は止められ、再生ボタンのクリックで再生が始まる | 対応済み・自動検証OK |
 | YouTube | `blob:`（MSE）。SPAでvideo要素が使い回されるが、`WeakMap`で二重接続を防いでいる | 対応済み・自動検証OK（SPA遷移後の動作は未確認） |
-| Kick | Amazon IVSがWorker内のMSEを`srcObject`（`MediaSourceHandle`）で渡す。`currentSrc`は空。ミュートで自動再生される。広告用の`static.kick.com/ads/*.mp4`は別オリジンなので接続しない | 対応済み・自動検証OK |
+| Kick | Amazon IVSのプレイヤー。ChromeではWorker内のMSEを`srcObject`（`MediaSourceHandle`）で渡し、`currentSrc`は空。Firefoxでは`blob:`。ミュートで自動再生される。広告用の`static.kick.com/ads/*.mp4`は別オリジンなので接続しない | 対応済み・自動検証OK |
+| Twitch | Kickと同じAmazon IVSのプレイヤー。Chromeでは`MediaSourceHandle`、Firefoxでは`blob:`。DRMなし、トップフレーム、音ありで自動再生される | 対応済み・自動検証OK（2026-11-10） |
+
+### サイトの追加の手順
+
+1. 再生方式を調べる：`currentSrc`が`blob:`か、`srcObject`が`MediaSourceHandle`か、DRM（`video.mediaKeys`）があるか、video要素がiframeの中にあるか。下の「手動確認」のコードが使える
+2. `extension/manifest.json`の`content_scripts`と`web_accessible_resources`の`matches`に、サイトを追加する
+3. `tools/sites.js`に、そのサイトで配信を探す方法を足し、`package.json`に`verify:<サイト>`を足す
+4. `npm run verify:<サイト>`（Chrome）と`npm run verify:firefox -- <サイト>`（Firefox）を実行する
+5. このメモの「サイト別の状況」に記録する
 
 ## 音声グラフの構成
 
@@ -293,10 +319,11 @@ EQやオートEQで持ち上げても0dBFSを超えて音割れしないよう�
 それぞれの読み込み方：
 - **RNNoise**：ワークレット内では`fetch`が使えないので、WASMはcontent scriptで取得し、`processorOptions.wasmBinary`で渡す
   - 128サンプル単位の入力を、1920サンプルのリングバッファで480サンプルのフレームに組み替えている
-- **DeepFilterNet3**：パッケージの`createDeepFilterNetAudioWorklet()`を使う
-  - ESモジュールなので、content scriptから動的importする
-  - WASMのコンパイルはcontent scriptで行い、ワークレットに渡す
-  - ワークレット・WASM・モデルのURLは、`getURL`で作った動的URLを明示的に渡す。パッケージは既定では`import.meta.url`からURLを作るが、それは拡張の固定URLになり、`use_dynamic_url`を有効にしているとページから取得できない（「Failed to fetch」になる）
+- **DeepFilterNet3**：パッケージの`createDeepFilterNetAudioWorklet()`は使わず、ノードを自分で作る
+  - Firefoxでは、この関数がワークレットに渡す`WebAssembly.Module`をページ側にコピーできないため
+  - ワークレットに渡す設定（`DEEPFILTERNET_OPTIONS`）は、この関数（0.2.0）の既定値と同じにしている。パッケージを更新したら、`dist/deepfilternet.js`の設定が変わっていないかを確かめる
+  - WASMは、Chromeではcontent scriptでコンパイルした`WebAssembly.Module`を渡す（14.6MBをワークレットの音声処理のスレッドでコンパイルさせると、音が途切れるおそれがあるため）。Firefoxではバイト列で渡し、ワークレットでコンパイルさせる（準備まで約0.3秒）
+  - 以前は関数を動的importして使っていた。そのときは、パッケージが`import.meta.url`から作るURLが拡張の固定URLになり、`use_dynamic_url`を有効にしているとページから取得できなかった（「Failed to fetch」）ので、`getURL`の動的URLを明示的に渡していた
 
 ### ノイズキャンセルのライセンス
 
@@ -336,7 +363,7 @@ EQやオートEQで持ち上げても0dBFSを超えて音割れしないよう�
 - **パラメータ**：各フィルタのゲイン、wet/dry、方式ごとのwet、`nrDry`、`compWet`/`compDry`が設定どおりか
   - ポップアップのスライダーは、画面上の位置ではなく帯域の番号（`data-band`）で選んで動かす
   - プリセットは選択欄で選び、期待値はポップアップの`Settings.PRESETS`から取る
-- **オートEQ**：分析が終わっているか、補正量が強さごとの上限（控えめ±6、標準±9、強め±12dB）に収まっているか、フィルタのゲインが補正量に追いついているか（0.5dB以内）
+- **オートEQ**：分析が終わっているか、補正量が強さごとの上限（控えめ±6、標準±9、強め±12dB）に収まっているか、フィルタのゲインが補正量に追いついているか（1.5dB以内。内容がよく変わる番組では、補正量が1秒に0.5dB以上動くことがあるため）
   - オートEQ以外のときは、オートEQの分析が止まっているかも確かめる
   - 目安からのずれ（補正前と補正後）を表示する
 - **使っていない方式が止まっているか**：選んでいない方式のノードが残っていないか
@@ -357,9 +384,28 @@ EQやオートEQで持ち上げても0dBFSを超えて音割れしないよう�
 - YouTubeは、何本かの配信で途中から動画が止まって測れなかった。止まらなかった配信でOKを確認した
 - 止まる原因は、下の「自動再生」を参照
 
+2026-11-10に、Twitchも12パターンすべてOK（`MediaSourceHandle`で再生）。
+
+### Firefoxの自動検証（`tools/verify-firefox.js`）
+
+インストール済みのFirefoxを、一時プロファイル・ヘッドレスで起動する（WebDriver BiDi）。テスト用の仕組みを足した拡張のコピーを一時的なアドオンとして読み込み、配信を再生して次を確かめる。
+
+1. **接続**：video要素に接続され、AudioContextがrunningか
+2. **EQ**：フィルタのゲインと周波数特性（Chromeと同じ判定）
+3. **ノイズキャンセル**：RNNoiseとDeepFilterNet3のノードが準備でき、切り替わり、使っていない方式が止まっているか
+4. **ポップアップ**：プリセットの選択肢がそろっているか、ニュースを選ぶとEQに入るか、配信のタブに状態を問い合わせられるか
+5. **リミッター**：メイクアップゲインの打ち消し（1.71dB）がChromeと同じか、+12dBの入力でも−1dBFSを超えないか
+
+Chromeの検証との違い：
+- **測り方**：CDPが使えないので、テスト用のcontent script（`tools/firefox-probe.js`）をコピーにだけ足し、ページから`postMessage`で測定を頼む
+- **音量**：ミュートせず、動画の音量を0.01にして測る（下の「Firefox対応」を参照）。そのため、小さい音を分析に入れないオートEQは確かめていない
+- **ポップアップ**：BiDiでは拡張の内部URL（`moz-extension://`）を開けないので、コピーに足したバックグラウンドスクリプトが、ポップアップの画面をタブで開く。この画面を操作するには、環境変数`MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`が要る
+
+2026-11-10の時点で、ニコ生・YouTube・Kick・Twitchの4サイトとも、すべてOK（Firefox 159.0.1）。
+
 ### 実際に聞いての確認
 
-2026-11-09に、開発者が実際に耳で聞いて、正しく動作することを確認した。
+2026-11-09に、開発者が実際に耳で聞いて、正しく動作することを確認した（Chrome。Firefoxはまだ）。
 
 ### 手動確認（DevTools Console）
 
@@ -424,6 +470,37 @@ ctx.resume();
 - YouTube：ヘッドレス・未ログインでは、多くの配信で、再生開始から約40秒で動画が一時停止し、再生位置が0秒に戻った
   - 拡張のせいではない。ノイズキャンセルを有効にした場合（38秒）と、何もしない場合（39秒）で同じように起きた
   - 広告表示中の印（`#movie_player.ad-showing`）は付いていなかった
+- Twitch：音ありで自動再生される
+
+## Firefox対応
+
+2026-11-10に対応した。manifestはChromeと同じものを使う（分けていない）。
+
+### 実装の違い
+
+Chromeと同じコードで動くようにしている。Firefoxでだけ違う動きをするのは次の2点。
+
+- **ワークレットに渡すオブジェクト**：Firefoxでは、content scriptで作ったオブジェクトをそのまま`AudioWorkletNode`の`processorOptions`や`port.postMessage`に渡すと、`DataCloneError`になる。content scriptのオブジェクトはページ側からは見えない扱いのため
+  - `cloneInto(obj, window)`でページ側にコピーしてから渡す（`audio-graph.js`の`toPage`）。Chromeには`cloneInto`がないので、そのまま渡す
+- **DeepFilterNet3のWASM**：`WebAssembly.Module`は`cloneInto`でコピーできない（unsupported value type）。Firefoxではバイト列で渡し、ワークレットの中でコンパイルさせる（「ノイズキャンセル」を参照）
+
+### 分かったこと
+
+- **ミュートと音量**：Firefoxでは、タブのミュートと動画の音量が、Web Audioに入る手前でかかる。ミュートすると拡張に届く音も無音になる。Chromeでは、動画の音量は入る手前でかかるが、`--mute-audio`で起動しても拡張に届く音は無音にならない
+  - 自動検証では、ミュートせず動画の音量を0.01にして測っている
+  - `media.volume_scale`を0にしても、拡張に届く音が無音になった
+  - `media.cubeb.force_null_context`（音声出力をなくす設定）を使うと、Web Audio自体が動かなくなった
+- **Kick・Twitchの再生方式**：Firefoxでは`blob:`になる（Chromeでは`MediaSourceHandle`）
+- **リミッター**：`DynamicsCompressorNode`が自動でかけるメイクアップゲインは、Chromeと同じ値（1.71dB）だった。打ち消し用のGainNodeはそのままでよい
+- **WebDriver BiDiの制限**：拡張の内部URLを開けない。内部扱いのタブは、前面に出すことも読み込み直すこともできない
+
+### 常用するには
+
+- `about:debugging`の一時的なアドオンは、Firefoxを再起動すると消える
+- 通常のFirefoxで入れたままにするには、署名が要る。自分用なら、AMOに「自己配布（unlisted）」で出して署名だけ受ける方法がある。Developer EditionかNightlyなら、`xpinstall.signatures.required`をfalseにして署名なしで入れられる
+- 署名するときに決めること・確かめること
+  - 拡張のID（`browser_specific_settings.gecko.id`）を決める。Chromeでは、このキーがあると「認識できないキー」の警告が出る（動作には影響しない）。気になるなら、そのときにmanifestを分ける
+  - AMOへの提出で`data_collection_permissions`（データ収集の申告）が必要かを確かめる（未確認）
 
 ## 録画拡張との関係
 
@@ -471,6 +548,14 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
 - オートEQ
 - ニコ生・Kickに対応している
 
+## 公開に向けて
+
+当面は自分用。形が整ったら、一般公開も考える。そのときに必要になりそうなこと：
+- ChromeウェブストアとAMO（Firefox）への登録。説明文、スクリーンショット、プライバシーポリシー（データを集めないことの明記）
+- ノイズキャンセルのライセンス文の表示（「ノイズキャンセルのライセンス」を参照）
+- 拡張のサイズ：DeepFilterNet3のファイルで約23MBある
+- 対象サイトの権限：サイトを足すたびに、更新時に権限の追加の確認が出る
+
 ## 残課題
 
 ### 解決済みの未確認事項
@@ -499,6 +584,12 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
 - DeepFilterNet3の遅延（約71ms）で、映像と音声のずれが気にならないか
 - YouTubeで出る`Unsafe attempt to load URL`のログ。消すなら、service worker経由でWASMを取得する
 - TypeScript 7系でJSDocによる型チェックがどこまでできるかは未確認（型チェックを導入するときに確認する）
+- Firefoxで常用するための署名（「Firefox対応」を参照）
+- Firefoxで未確認のこと
+  - 実際に耳で聞いての確認
+  - オートEQ（自動検証では音量を小さくしているため。処理はChromeと共通）
+  - ツールバーの拡張アイコンから開いた本物のポップアップ（自動検証では、同じ画面をタブで開いて操作している）
+  - 通常のインストールで、対象サイトへのアクセスの許可を求められるか（MV3のFirefoxでは、サイトへのアクセスがユーザーの許可制になることがある）
 
 ## 開発者の作業スタイル
 
