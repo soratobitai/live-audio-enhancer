@@ -121,7 +121,7 @@ select {
   font: inherit;
 }
 
-select:disabled {
+body:not(.off) select:disabled {
   opacity: 0.5;
 }
 
@@ -130,7 +130,7 @@ select:disabled {
 }
 
 /* オートEQ のあいだは、スライダーは自動で決めた値を表示するだけにする */
-.band input:disabled {
+body:not(.off) .band input:disabled {
   opacity: 0.6;
 }
 
@@ -217,11 +217,16 @@ select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* 全体を無効にしたときは、各欄をまとめて薄く表示する（操作はできる） */
+/* 全体を無効にしたときは、各欄をまとめて薄く表示し、操作できなくする。
+   欄ごとに薄くしているので、中の部品（選択欄・スライダー）は重ねて薄くしない */
 body.off .denoise,
 body.off .leveler,
 body.off .eq {
   opacity: 0.45;
+}
+
+body.off :is(.denoise, .leveler, .eq) :is(label, input, select) {
+  cursor: default;
 }
 
 footer {

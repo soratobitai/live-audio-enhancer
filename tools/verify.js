@@ -145,6 +145,9 @@ const INSTALL_PROBE = `(async () => {
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
 async function setPopup(popup, { enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq }) {
   await popup.evaluate((enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq) => {
+    // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
+    const enabledSwitch = document.getElementById('enabled');
+    if (!enabledSwitch.checked) enabledSwitch.click();
     // オートEQ のあいだは手動の EQ を操作できないので、手動の EQ を変えるときは先にオートEQ をオフにする
     const autoSwitch = document.getElementById('autoEq');
     if (!keepEq) {
@@ -166,10 +169,9 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, autoEq, auto
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
-    for (const [id, on] of [['denoise', denoise], ['enabled', enabled]]) {
-      const sw = document.getElementById(id);
-      if (sw.checked !== on) sw.click();
-    }
+    const denoiseSwitch = document.getElementById('denoise');
+    if (denoiseSwitch.checked !== denoise) denoiseSwitch.click();
+    if (!enabled) enabledSwitch.click();
   }, enabled, denoise, engine, leveler, autoEq, autoStrength, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
@@ -248,12 +250,14 @@ async function check(browser, extId, url) {
     for (const scenario of SCENARIOS) {
       const s = presets[scenario.eqPreset] ? { ...scenario, gains: presets[scenario.eqPreset] } : scenario;
       await setPopup(popup, s);
+      // 全体を無効にしたとき、「有効」のスイッチ以外を操作できなくなっているか
+      const locked = await popup.evaluate(() => !document.querySelector(':is(.denoise, .leveler, .eq) :is(input, select):enabled, #reset:enabled'));
       // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す。
       // ノイズキャンセルを初めて有効にしたときは、WASM・モデルの読み込みと切り替えの待ちがあるので長めに待つ。
       // オートEQ は分析がたまって補正が落ち着くまで待つ
       await page.bringToFront();
       await sleep(s.wait ?? 2000);
-      runs.push({ scenario: s, m: await evaluate(contextId, '__audioFxProbe()') });
+      runs.push({ scenario: s, locked, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
     return { url, title, logs, video, runs };
@@ -265,7 +269,8 @@ async function check(browser, extId, url) {
   }
 }
 
-function judgeRun({ scenario, m }) {
+function judgeRun({ scenario, m, locked }) {
+  if (locked !== !scenario.enabled) return { ok: false, reason: scenario.enabled ? 'ポップアップの欄を操作できない' : '全体を無効にしても、ほかの欄を操作できる' };
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
   // 入口から無音なら、拡張の処理とは関係なく判定できない（YouTube の広告や読み込み直しで動画が止まることがある）
   if (m.video.paused || m.inRmsDb === null) return { ok: false, skip: true, reason: '入口が無音で判定できない（動画が止まっている、広告など）' };

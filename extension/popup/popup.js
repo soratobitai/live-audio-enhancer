@@ -106,13 +106,17 @@ function render(controls) {
   presetSelect.value = state.eqPreset;
   autoEqInput.checked = state.autoEq;
 
+  // 全体を無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
+  const off = !state.enabled;
+  for (const input of [denoiseInput, autoEqInput, ...engineInputs, ...levelerInputs, ...autoStrengthInputs]) input.disabled = off;
+
   // オートEQ のあいだは、手動の EQ（プリセット・スライダー・フラットに戻す）は操作できない。
   // スライダーには自動で決めた補正量を表示する。オフに戻すと、手動の EQ の値に戻る
   const auto = state.autoEq;
   autoStrengths.hidden = !auto;
-  presetSelect.disabled = auto;
-  resetButton.disabled = auto;
-  for (const { input } of controls) input.disabled = auto;
+  presetSelect.disabled = off || auto;
+  resetButton.disabled = off || auto;
+  for (const { input } of controls) input.disabled = off || auto;
   clearInterval(autoTimer);
   autoTimer = null;
   if (auto) {
