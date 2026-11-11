@@ -119,8 +119,7 @@ async function check(browser, url) {
       if (v.paused) v.play().catch(() => {});
     })()`);
     await sleep(5000);
-    await waitPlaying(page, 10000);
-    if (await page.evaluate(`(${PICK_VIDEO}).paused`)) return { url, title, skip: '再生されない（放送前など）' };
+    if (!(await waitPlaying(page, 10000))) return { url, title, skip: '再生されない（放送前など）' };
 
     const results = [];
     const attach = await probe(page, 'attach');

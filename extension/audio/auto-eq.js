@@ -10,7 +10,11 @@ const AutoEq = (() => {
   const UPDATE_MS = 1000;
   const AVERAGE_SECONDS = 15; // 長い時間の平均の時定数
   const MIN_SECONDS = 5; // これだけ音がたまるまでは補正しない
-  const SILENCE_DB = -60; // これより小さいときは平均に入れない（無音で形が崩れないように）
+  // 無音や話の間を平均に入れない（形が崩れないように）。EQ の形は音の大きさに関係なく決められるので、
+  // 決まった大きさではなく、その番組のふだんの大きさ（全体の平均）と比べて判定する。
+  // 決まった大きさ（以前は -60dB）で判定すると、番組の音が小さいときにほとんど捨ててしまい、分析が終わらなかった
+  const FLOOR_DB = -100; // これより小さいときは完全な無音とみなす
+  const GATE_DB = 20; // ふだんの大きさよりこれだけ小さいときは、話の間などとみなす
   const ABSENT_DB = 24; // 目安より 24dB 以上小さい帯域は、もともと音が入っていないとみなして持ち上げない
   // 強さ。amount は目安との差のうち補正する割合、limit は補正の上限（±dB）。
   // 割合と上限の両方を段階的に変える（割合を同じにすると、差が上限を超える帯域がない限り、強さを変えても結果が同じになる）
@@ -59,6 +63,8 @@ const AutoEq = (() => {
     const spectrum = new Float32Array(analyser.frequencyBinCount);
     const power = new Float64Array(bins.length);
     let seconds = 0; // 平均に入れた音の長さ
+    let usual = 0; // ふだんの大きさ（完全な無音以外の全体の平均。パワー）
+    let frames = 0; // ふだんの大きさに入れた回数
     let levels = null; // 帯域ごとの平均レベル（dB）
     let gains = Settings.BANDS.map(() => 0);
     let strength = 'standard';
@@ -71,7 +77,13 @@ const AutoEq = (() => {
         return p;
       });
       const total = frame.reduce((s, p) => s + p, 0);
-      if (!(10 * Math.log10(total) > SILENCE_DB)) return;
+      const db = 10 * Math.log10(total);
+      if (!(db > FLOOR_DB)) return;
+      // ふだんの大きさは、帯域の平均と同じく、最初のうちは単純な平均、たまったら指数移動平均にする。
+      // 番組の音量が大きく下がっても、しばらくすると追いつく
+      frames += 1;
+      usual += (total - usual) * Math.max(ANALYZE_MS / 1000 / AVERAGE_SECONDS, 1 / frames);
+      if (db < 10 * Math.log10(usual) - GATE_DB) return;
       seconds += ANALYZE_MS / 1000;
       // 最初のうちは単純な平均、たまったら指数移動平均にする
       const a = Math.max(ANALYZE_MS / 1000 / AVERAGE_SECONDS, ANALYZE_MS / 1000 / seconds);

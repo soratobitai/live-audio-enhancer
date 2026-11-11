@@ -67,6 +67,10 @@ const INSTALL_PROBE = `(async () => {
   const pre = mk(), post = mk();
   g.source.connect(pre);
   g.output.connect(post);
+  // 音割れは、プレイヤーの音量をかけ直した後の、実際に出ていく音で判定する。
+  // 拡張の中では音量を打ち消して処理するので、元の音が 0dBFS をわずかに超える配信では、素通しのとき output で 1 を超えることがある
+  const fin = mk();
+  g.volume.connect(fin);
 
   const probes = [62, 1000, 4000, 12000];
   const freqs = new Float32Array(probes);
@@ -90,9 +94,9 @@ const INSTALL_PROBE = `(async () => {
       : wetDb;
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
-    const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize);
+    const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize), tdFin = new Float32Array(fin.fftSize);
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
-    let peak = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
+    let peak = 0, peakOut = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
     // 測っている途中で動画が止まったり、最初に戻ったり（広告や読み込み直し）したら、結果を使わない
     let interrupted = false, lastTime = v.currentTime, limiterReduction = 0;
     for (let i = 0; i < FRAMES; i++) {
@@ -105,8 +109,10 @@ const INSTALL_PROBE = `(async () => {
       post.getFloatFrequencyData(b);
       pre.getFloatTimeDomainData(tdIn);
       post.getFloatTimeDomainData(tdOut);
+      fin.getFloatTimeDomainData(tdFin);
       for (let j = 0; j < tdOut.length; j++) {
-        peak = Math.max(peak, Math.abs(tdOut[j]));
+        peak = Math.max(peak, Math.abs(tdFin[j]));
+        peakOut = Math.max(peakOut, Math.abs(tdOut[j]));
         sqIn += tdIn[j] * tdIn[j];
         sqOut += tdOut[j] * tdOut[j];
         n++;
@@ -126,7 +132,7 @@ const INSTALL_PROBE = `(async () => {
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
       video: { paused: v.paused, time: v.currentTime, interrupted },
-      peak, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
+      peak, peakOut, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
       params: {
         gains: g.filters.map((f) => f.gain.value),
         wet: g.wet.gain.value, dry: g.dry.gain.value, nrDry: g.nrDry.gain.value,
@@ -143,6 +149,43 @@ const INSTALL_PROBE = `(async () => {
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
   };
+  // 入口に音が来ているか（今の瞬間の二乗和。完全な無音なら 0）
+  const level = new Float32Array(pre.fftSize);
+  globalThis.__audioFxLevel = () => {
+    pre.getFloatTimeDomainData(level);
+    return level.reduce((sum, x) => sum + x * x, 0);
+  };
+
+  // プレイヤーの音量を変えて、打ち消しが効いているかを測る。入口（打ち消す前 → 後）と出口（かけ直す前 → 後）の
+  // ゲインを、同じ時刻の音の大きさの比で求める。音量 v なら、入口は 1/v 倍、出口は v 倍になるはず
+  globalThis.__audioFxVolumeProbe = async (volume) => {
+    const original = v.volume;
+    v.volume = volume;
+    await new Promise((r) => setTimeout(r, 500));
+    const pairs = [[g.element, g.source], [g.output, g.volume]].map(([from, to]) => {
+      const a = mk(), b = mk();
+      from.connect(a);
+      to.connect(b);
+      return { from, to, a, b, sq: [0, 0] };
+    });
+    const td = new Float32Array(pre.fftSize);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      for (const p of pairs) {
+        p.a.getFloatTimeDomainData(td);
+        for (const x of td) p.sq[0] += x * x;
+        p.b.getFloatTimeDomainData(td);
+        for (const x of td) p.sq[1] += x * x;
+      }
+    }
+    for (const p of pairs) {
+      p.from.disconnect(p.a);
+      p.to.disconnect(p.b);
+    }
+    v.volume = original;
+    const gainDb = ({ sq }) => (sq[0] > 0 && sq[1] > 0 ? 10 * Math.log10(sq[1] / sq[0]) : null);
+    return { volume, inGainDb: gainDb(pairs[0]), outGainDb: gainDb(pairs[1]) };
+  };
   return true;
 })()`;
 
@@ -153,10 +196,13 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStren
     // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
     const enabledSwitch = document.getElementById('enabled');
     if (!enabledSwitch.checked) enabledSwitch.click();
-    // オートEQ のあいだは手動の EQ を操作できないので、手動の EQ を変えるときは先にオートEQ をオフにする
-    const autoSwitch = document.getElementById('autoEq');
+    // EQ はオートか手動のどちらか。オートのあいだは手動の EQ を操作できないので、手動の EQ を変えるときは先に手動にする
+    const setAuto = (on) => {
+      const mode = document.querySelector(`input[name="eqMode"][value="${on ? 'auto' : 'manual'}"]`);
+      if (!mode.checked) mode.click();
+    };
     if (!keepEq) {
-      if (autoSwitch.checked) autoSwitch.click();
+      setAuto(false);
       if (eqPreset) {
         const select = document.getElementById('eqPreset');
         select.value = eqPreset;
@@ -169,7 +215,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStren
         });
       }
     }
-    if (autoSwitch.checked !== autoEq) autoSwitch.click();
+    setAuto(autoEq);
     for (const [name, value] of [['engine', engine], ['levelerStrength', levelerStrength], ['autoStrength', autoStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
@@ -234,18 +280,21 @@ async function check(browser, extId, url) {
       if (v.paused) v.play().catch(() => {});
     })()`);
     await sleep(5000);
-    await waitPlaying(page, 10000);
+    const playing = await waitPlaying(page, 10000);
 
     const video = await page.evaluate(`(() => {
       const v = ${PICK_VIDEO};
       return { src: v.currentSrc || (v.srcObject ? Object.prototype.toString.call(v.srcObject) : ''), paused: v.paused };
     })()`);
-    if (video.paused) return { url, title, skip: '再生されない（放送前など）' };
+    if (!playing) return { url, title, skip: '再生されない（放送前など）' };
 
     const { frameTree } = await cdp.send('Page.getFrameTree');
     const contextId = contexts.get(frameTree.frame.id);
     if (contextId === undefined) return { url, title, logs, fail: 'content script が注入されていない' };
     if (!(await evaluate(contextId, INSTALL_PROBE))) return { url, title, logs, video, fail: '接続されていない' };
+    // 再生を始めてしばらく無音の配信がある（ニコ生の国会中継で、拡張がなくても再生開始から約1分無音だった）。
+    // 音が来るまで最長90秒待ってから測る
+    for (let t = 0; t < 90 && !(await evaluate(contextId, '__audioFxLevel() > 0')); t += 2) await sleep(2000);
 
     popup = await browser.newPage();
     await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
@@ -267,7 +316,9 @@ async function check(browser, extId, url) {
       runs.push({ scenario: s, locked, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
-    return { url, title, logs, video, runs };
+    // 最後に、プレイヤーの音量を 0.25 にして打ち消しを確かめる（測り終えたら元の音量に戻す）
+    const volume = await evaluate(contextId, '__audioFxVolumeProbe(0.25)');
+    return { url, title, logs, video, runs, volume };
   } catch (e) {
     return { url, fail: e.message };
   } finally {
@@ -284,6 +335,8 @@ function judgeRun({ scenario, m, locked }) {
   if (m.video.interrupted) return { ok: false, skip: true, reason: '測っている途中で動画が止まった、または最初に戻った（広告など）' };
   if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
   if (m.peak > 1) return { ok: false, reason: `出力が 0dBFS を超えた（ピーク ${m.peak.toFixed(3)}、音割れ）` };
+  // エフェクト側はリミッターを通るので、音量をかけ直す前でも 0dBFS を超えないはず（素通しのときは元の音のまま）
+  if (scenario.enabled && m.peakOut > 1) return { ok: false, reason: `リミッターを通った音が 0dBFS を超えた（ピーク ${m.peakOut.toFixed(3)}）` };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
   if (scenario.autoEq) {
@@ -291,8 +344,8 @@ function judgeRun({ scenario, m, locked }) {
     const limit = AUTO_LIMITS[scenario.autoStrength];
     if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
     // 補正量は毎秒計算し直され、フィルタのゲインはそれを時定数1秒で追いかける。
-    // 内容がよく変わる番組では補正量が1秒に0.5dB以上動くこともあるので、1.5dB までの差は許す
-    if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 1.5))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
+    // 分析を始めて間もないころに内容がよく変わると、補正量が1秒に2dB以上動くこともある（Twitch で 2.4dB）ので、3dB までの差は許す
+    if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 3))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
   } else {
     if (p.auto) return { ok: false, reason: 'オートEQ の分析が止まっていない' };
     if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
@@ -322,8 +375,18 @@ function judgeRun({ scenario, m, locked }) {
   return { ok: true };
 }
 
+// プレイヤーの音量の打ち消し：音量 v のとき、入口は 1/v 倍、出口は v 倍になっているか
+function judgeVolume({ volume, inGainDb, outGainDb }) {
+  const expected = -20 * Math.log10(volume);
+  if (inGainDb === null || outGainDb === null) return { ok: false, skip: true, reason: '無音で測れない' };
+  if (Math.abs(inGainDb - expected) > 0.5 || Math.abs(outGainDb + expected) > 0.5) {
+    return { ok: false, reason: `プレイヤーの音量の打ち消しが違う（期待は入口 +${expected.toFixed(1)}dB、出口 -${expected.toFixed(1)}dB）` };
+  }
+  return { ok: true };
+}
+
 function judge(r) {
-  const results = r.runs.map(judgeRun);
+  const results = [...r.runs.map(judgeRun), judgeVolume(r.volume)];
   return {
     ok: results.every((j) => j.ok),
     skip: results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
@@ -368,6 +431,10 @@ function report(r, j) {
     }
     console.log(rj.ok ? '    OK' : `    ${rj.skip ? 'スキップ' : 'NG'}: ${rj.reason}`);
   });
+  const vj = j.results[r.runs.length];
+  const db = (x) => (x === null ? '-' : x.toFixed(1));
+  console.log(`\n  [プレイヤーの音量を ${r.volume.volume} にする] ゲイン 入口 ${db(r.volume.inGainDb)}dB　出口 ${db(r.volume.outGainDb)}dB`);
+  console.log(vj.ok ? '    OK' : `    ${vj.skip ? 'スキップ' : 'NG'}: ${vj.reason}`);
   console.log(j.ok ? '\n  結果: OK' : `\n  結果: ${j.skip ? 'スキップ' : 'NG'}`);
 }
 

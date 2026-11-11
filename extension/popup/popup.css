@@ -124,7 +124,62 @@ body:not(.off) select:disabled {
   opacity: 0.5;
 }
 
-.auto {
+/* オート / 手動の切り替え。ラジオボタン自体は隠し、選んでいる側を塗りつぶす */
+.segmented {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented label {
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented span {
+  display: block;
+  padding: 2px 14px;
+  text-align: center;
+}
+
+.segmented input:checked + span {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* オートのときは強さと状態、手動のときはプリセットと「フラットに戻す」を出す */
+body.auto .manual-panel,
+body.auto footer,
+body:not(.auto) .auto-panel {
+  display: none;
+}
+
+.auto-panel {
+  padding-top: 4px;
+}
+
+.auto-note {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.manual-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding-top: 6px;
 }
 

@@ -5,10 +5,12 @@
 // video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ リミッター ─ wet ─┬─ output ─ destination
-//           │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘                   │
-//           │ └──────────────────────── nrDry ───┘                                                           │
-//           └────────────────────────────────────────────────────────────────────────────────────── dry ───┘
+//   video ─ source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ リミッター ─ wet ─┬─ output ─ volume ─ destination
+//                   │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘                   │
+//                   │ └──────────────────────── nrDry ───┘                                                           │
+//                   └────────────────────────────────────────────────────────────────────────────────────── dry ───┘
+// プレイヤーの音量は、この拡張に音が届く前にかかっている。音量によってオートEQ や音量をそろえるの効き方が
+// 変わらないよう、source で音量を打ち消してから処理し、volume でかけ直す（耳に届く大きさはプレイヤーの音量どおり）。
 // リミッターは、EQ で持ち上げても 0dBFS を超えて音割れしないように、エフェクト側の経路の最後に常に入れる。
 // EQ は BiquadFilter を帯域の数だけ直列につないだもの。
 // オートEQ のときは、eqIn（EQ に入る前の音）を分析して EQ のゲインを決める。
@@ -17,6 +19,8 @@
 const AudioGraph = (() => {
   // パラメータを変えるときの時定数（秒）。値を急に変えるとプツッというノイズが出る
   const RAMP = 0.02;
+  // プレイヤーの音量を打ち消すときの下限（-40dB）。音量 0 は打ち消せないので、これより小さい音量はこの値とみなす
+  const MIN_VOLUME = 0.01;
   // 使わなくなったノイズキャンセルを止めるまでの時間（ミリ秒）。出力のフェードアウトが終わるのを待つ
   const STOP_DELAY_MS = 200;
   // オートEQ がゲインを変えるときの時定数（秒）。音色が急に変わらないよう、ゆっくり変える
@@ -245,7 +249,9 @@ const AudioGraph = (() => {
     }, STOP_DELAY_MS);
   }
 
-  function build(c, source) {
+  function build(c, element) {
+    const source = c.createGain();
+    element.connect(source);
     const filters = Settings.BANDS.map((b) => {
       const f = c.createBiquadFilter();
       f.type = b.type;
@@ -265,6 +271,7 @@ const AudioGraph = (() => {
     const wet = c.createGain();
     const dry = c.createGain();
     const output = c.createGain();
+    const volume = c.createGain();
     source.connect(nrDry);
     nrDry.connect(eqIn);
     eqIn.connect(filters[0]);
@@ -276,12 +283,23 @@ const AudioGraph = (() => {
     wet.connect(output);
     source.connect(dry);
     dry.connect(output);
-    output.connect(c.destination);
+    output.connect(volume).connect(c.destination);
     // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null。
     // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
     return {
-      source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, engines: {}, auto: null,
+      element, source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, volume, engines: {}, auto: null,
     };
+  }
+
+  // プレイヤーの音量を、source で打ち消し、volume でかけ直す。
+  // プレイヤーの音量 v がかかった音に 1/v をかけて処理し、最後に v をかけるので、耳に届く大きさは変わらない
+  function followVolume(g, video, ramp) {
+    const v = Math.max(video.volume, MIN_VOLUME);
+    const c = g.source.context;
+    for (const [param, value] of [[g.source.gain, 1 / v], [g.volume.gain, v]]) {
+      if (ramp) param.setTargetAtTime(value, c.currentTime, RAMP);
+      else param.value = value;
+    }
   }
 
   // EQ のゲインを決める。オートEQ のときは分析した結果を、それ以外は設定のゲイン（手動かプリセット）を使う
@@ -337,8 +355,9 @@ const AudioGraph = (() => {
   async function connect(video) {
     const c = await whenRunning();
     try {
-      const source = c.createMediaElementSource(video);
-      const g = build(c, source);
+      const g = build(c, c.createMediaElementSource(video));
+      followVolume(g, video, false);
+      video.addEventListener('volumechange', () => followVolume(g, video, true));
       apply(g, false);
       live.add(g);
       latest = g;

@@ -2,6 +2,8 @@
 
 const enabledInput = document.getElementById('enabled');
 const presetSelect = document.getElementById('eqPreset');
+const eqModeInputs = document.querySelectorAll('input[name="eqMode"]');
+const autoStrengthInputs = document.querySelectorAll('input[name="autoStrength"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
@@ -9,13 +11,10 @@ const resetButton = document.getElementById('reset');
 const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
-const AUTO_DESCRIPTION = '番組の音に合わせて、EQ を自動で調整します';
-
 // オン・オフのスイッチと、強さ（標準 / 強め）の選択肢を持つ機能。key はスイッチの設定、choice は選択肢の設定
 const FEATURES = [
   { key: 'denoise', choice: 'engine', section: '.denoise' },
   { key: 'leveler', choice: 'levelerStrength', section: '.leveler' },
-  { key: 'autoEq', choice: 'autoStrength', section: '.auto' },
 ].map((f) => ({
   ...f,
   input: document.getElementById(f.key),
@@ -91,7 +90,7 @@ async function showAutoEq(controls) {
     } else if (!status.autoEq?.ready) {
       autoNote.textContent = '番組の音を分析しています…';
     } else {
-      autoNote.textContent = '番組の音に合わせて自動で調整しています';
+      autoNote.textContent = '番組の音に合わせて自動で調整しています（試作）';
     }
     if (status?.autoEq) showGains(controls, status.autoEq.gains);
   } catch {
@@ -112,10 +111,14 @@ function render(controls) {
     for (const input of f.choices) input.checked = input.value === state[f.choice];
     for (const input of [f.input, ...f.choices]) input.disabled = off;
   }
+  for (const input of eqModeInputs) input.checked = input.value === (state.autoEq ? 'auto' : 'manual');
+  for (const input of autoStrengthInputs) input.checked = input.value === state.autoStrength;
+  for (const input of [...eqModeInputs, ...autoStrengthInputs]) input.disabled = off;
 
-  // オートEQ のあいだは、手動の EQ（プリセット・スライダー・フラットに戻す）は操作できない。
-  // スライダーには自動で決めた補正量を表示する。オフに戻すと、手動の EQ の値に戻る
+  // EQ はオートか手動のどちらか。オートのあいだは、手動の EQ（プリセット・フラットに戻す）は隠し、
+  // スライダーは動かせないようにして、自動で決めた補正量を表示する。手動に戻すと、手動の EQ の値に戻る
   const auto = state.autoEq;
+  document.body.classList.toggle('auto', auto);
   presetSelect.disabled = off || auto;
   resetButton.disabled = off || auto;
   for (const { input } of controls) input.disabled = off || auto;
@@ -126,7 +129,6 @@ function render(controls) {
     showAutoEq(controls);
     autoTimer = setInterval(() => showAutoEq(controls), 1000);
   } else {
-    autoNote.textContent = AUTO_DESCRIPTION;
     showGains(controls, state.gains);
   }
 }
@@ -154,6 +156,19 @@ function render(controls) {
         Settings.save(state);
       });
     }
+  }
+  for (const input of eqModeInputs) {
+    input.addEventListener('change', () => {
+      state.autoEq = input.value === 'auto';
+      render(controls);
+      Settings.save(state);
+    });
+  }
+  for (const input of autoStrengthInputs) {
+    input.addEventListener('change', () => {
+      state.autoStrength = input.value;
+      Settings.save(state);
+    });
   }
   // プリセットを選んだら、その値をゲインに入れる。カスタムは、手動のゲインをそのまま残す
   presetSelect.addEventListener('change', () => {

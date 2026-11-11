@@ -49,13 +49,23 @@ export const PICK_VIDEO = `[...document.querySelectorAll('video')].sort((a, b) =
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 動画の再生が始まるまで、最長 timeout ミリ秒待つ。
+// 動画が実際に再生されているか（1秒のあいだに再生位置が進んだか）。
+// 中身のない video（放送前のニコ生など）に play() を呼ぶと、再生されていなくても paused が false になるので、paused だけでは判定しない
+export async function isPlaying(page) {
+  const position = () => page.evaluate(`(() => { const v = ${PICK_VIDEO}; return v && !v.paused ? v.currentTime : null; })()`);
+  const before = await position();
+  await sleep(1000);
+  const after = await position();
+  return before !== null && after !== null && after > before;
+}
+
+// 動画の再生が始まるまで、最長 timeout ミリ秒待つ。再生が始まったら true を返す。
 // TVer は、トップページを開いたあとだと、play() から数秒止まったままになることがある（広告の準備と考えている）
 export async function waitPlaying(page, timeout) {
   for (let t = 0; t < timeout; t += 1000) {
-    if (await page.evaluate(`!(${PICK_VIDEO}).paused`)) return;
-    await sleep(1000);
+    if (await isPlaying(page)) return true;
   }
+  return false;
 }
 
 export async function findBroadcasts(browser, site) {

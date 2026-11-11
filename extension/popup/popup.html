@@ -46,23 +46,25 @@
     </div>
   </section>
   <section class="eq">
+    <!-- EQ のゲインの決め方。オート（番組に合わせて自動）か、手動（プリセットとスライダー）のどちらか -->
     <div class="eq-head">
       <span>イコライザー</span>
-      <select id="eqPreset" aria-label="イコライザーのプリセット"></select>
+      <div class="segmented" role="radiogroup" aria-label="イコライザーの決め方">
+        <label><input type="radio" name="eqMode" value="auto"><span>オート</span></label>
+        <label><input type="radio" name="eqMode" value="manual"><span>手動</span></label>
+      </div>
     </div>
-    <div class="feature auto">
-      <label class="switch option">
-        <span>
-          オート（試作）
-          <small class="auto-note"></small>
-        </span>
-        <input type="checkbox" role="switch" id="autoEq">
-      </label>
+    <div class="auto-panel">
+      <small class="auto-note"></small>
       <div class="choices" role="radiogroup" aria-label="オートEQの強さ">
         <label><input type="radio" name="autoStrength" value="standard"><span>標準</span></label>
         <label><input type="radio" name="autoStrength" value="strong"><span>強め</span></label>
       </div>
     </div>
+    <label class="manual-panel">
+      <span>プリセット</span>
+      <select id="eqPreset"></select>
+    </label>
     <div id="bands"></div>
   </section>
   <footer>
