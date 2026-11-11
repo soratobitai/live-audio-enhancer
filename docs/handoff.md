@@ -62,6 +62,7 @@
 | 33 | ポップアップを開いたときに、プリセットの選択欄が設定どおりに表示されない不具合を直す（v0.19.0で混入） | 完了 |
 | 34 | オートEQの目安の形を、話し声用と音楽用で切り替える（話し声の判定を共通にする） | 完了（目安の値は聞いて調整する前提） |
 | 35 | 名前を「Audio FX」から「Live Audio Enhancer」に変える | 完了（「名前」を参照） |
+| 36 | Firefoxのストア（AMO）で公開する準備（提出用のファイル、ストアの文章、スクリーンショット、手順書） | 準備完了・提出はこれから（`docs/publish-firefox.md`） |
 
 ディレイ拡張との同時動作の確認（当初のステップ6）は、対象外になった。
 
@@ -70,7 +71,7 @@
 - 次のサイトの追加（候補は「次のサイトの候補」を参照。おすすめはニコニコ動画から）。手順は「サイトの追加の手順」を参照
 - オートEQの目安の形の調整（必要になったら。番組の種類で目安を変えるかなど。「オートEQ」を参照）
 - プリセットの値の調整：今の値は聞いて調整する前提の初期値
-- Firefoxで常用するための署名（「Firefox対応」を参照）
+- Firefoxのストア（AMO）での公開。手順は`docs/publish-firefox.md`、ストアの文章は`docs/amo/`
 
 ### 使い方
 
@@ -116,8 +117,14 @@ audio-fx/
 │  ├─ firefox-probe.js         Firefoxの検証で、拡張のコピーにだけ足すテスト用content script
 │  ├─ sites.js                 自動検証で使う、サイトごとの配信の探し方と再生前の手順（ChromeとFirefoxで共通）
 │  ├─ icons.js                 アイコンの PNG を SVG から作る
+│  ├─ firefox.js               Firefox のストア用のファイルを作る・提出する（ID などを足す）
+│  ├─ amo-screenshots.js       ストア用のスクリーンショットを作る
 │  └─ vendor.js                ノイズキャンセルのパッケージからvendor/へファイルをコピー
-└─ docs/handoff.md             このメモ
+├─ docs/
+│  ├─ handoff.md               このメモ
+│  ├─ publish-firefox.md       Firefox のストア（AMO）で公開する手順
+│  └─ amo/                     ストアに載せる文章、審査担当者へのメモ、スクリーンショット
+└─ dist/                       提出用のファイル（git には入れない）
 ```
 
 ### 開発用コマンド
@@ -128,6 +135,9 @@ audio-fx/
 | `npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema / URL>` | Firefoxで自動検証する |
 | `npm run vendor` | ノイズキャンセルのパッケージから`extension/vendor/`へファイルをコピーし直す |
 | `npm run icons` | `extension/icons/`のSVGから、アイコンのPNG（16・32・48・128px）を作り直す |
+| `npm run pack:firefox` | Firefoxのストア用のファイルを作る（IDなどを足し、Mozillaの検査ツールにかけて、`dist/`にZIPを作る） |
+| `npm run release:firefox` | 新しい版をFirefoxのストアに提出する（AMOのAPIキーが要る。`docs/publish-firefox.md`を参照） |
+| `npm run amo:screenshots` | ストア用のスクリーンショット（1280×800）を作り直す |
 
 - `npm run vendor`のファイルの取り方は、パッケージによって違う
   - `@sapphi-red/web-noise-suppressor`：devDependenciesに入れて、`node_modules`から取る
@@ -764,7 +774,7 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
   - 広告のあいだと、広告から本編に戻ったときの動作（TVerは、アンケートに回答しないと広告も本編も流れないので、自動検証では広告を通していない）
   - ログインした状態での動作
   - ABEMAのビデオをFirefoxで再生したときの動作
-- Firefoxで常用するための署名（「Firefox対応」を参照）
+- Firefoxのストア（AMO）での公開。手順は`docs/publish-firefox.md`、ストアの文章は`docs/amo/`
 - Firefoxで未確認のこと
   - 実際に耳で聞いての確認
   - オートEQ（自動検証では音量を小さくしているため。処理はChromeと共通）

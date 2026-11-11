@@ -11,10 +11,14 @@
     "verify:abema": "node tools/verify.js abema",
     "verify:firefox": "node tools/verify-firefox.js",
     "vendor": "node tools/vendor.js",
-    "icons": "node tools/icons.js"
+    "icons": "node tools/icons.js",
+    "pack:firefox": "node tools/firefox.js pack",
+    "release:firefox": "node tools/firefox.js release",
+    "amo:screenshots": "node tools/amo-screenshots.js"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "0.4.1",
-    "puppeteer-core": "^25.16.0"
+    "puppeteer-core": "^25.16.0",
+    "web-ext": "^10.8.0"
   }
 }
