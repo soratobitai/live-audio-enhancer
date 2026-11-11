@@ -1,6 +1,6 @@
 # ストア（AMO）に載せる内容
 
-Developer Hub の各欄に、そのまま貼り付けて使う。日本語を既定の言語にし、英語を追加する（手順は `docs/publish-firefox.md`）。
+Developer Hub の各欄に、そのまま貼り付けて使う。日本語を既定の言語にし、英語を追加する（公開後の作業は `docs/handoff.md` の「ストアでの公開」）。
 
 ## 基本
 
