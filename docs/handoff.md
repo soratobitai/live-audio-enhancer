@@ -4,6 +4,8 @@
 
 拡張の名前は「Live Audio Enhancer」（v0.21.0から。それまでは「Audio FX」）。リポジトリのフォルダ名やログの`[audio-fx]`は、以前の名前のまま
 
+リポジトリ：https://github.com/soratobitai/live-audio-enhancer （公開。2026-11-11に作成。ブランチは`master`。pushはHTTPSで、Git Credential Managerに保存したsoratobitaiの認証を使う。このパソコンのGitHub CLIとSSHは別のアカウントなので、`gh`ではこのリポジトリに書き込む操作（設定の変更など）はできない）
+
 ## 目的
 
 ライブ配信の音声に、リアルタイムでイコライザーとノイズキャンセルをかけるブラウザ拡張（Manifest V3）を作る。ChromeとFirefoxに対応する。
@@ -103,6 +105,7 @@
 
 ```
 audio-fx/
+├─ README.md                   GitHub のトップに出る説明（ストアの状態が変わったら「インストール」を直す）
 ├─ extension/                  Chromeで読み込むフォルダ
 │  ├─ manifest.json
 │  ├─ shared/settings.js       設定の定義・保存・変更通知（content scriptとポップアップで共用）
