@@ -72,7 +72,8 @@ const AudioGraph = (() => {
   let settings = Settings.defaults();
   const graphs = new WeakMap(); // video -> Promise<graph | null>
   const live = new Set(); // 接続済みのグラフ。設定の変更を反映するために持つ
-  let latest = null; // 最後に接続したグラフ。ポップアップにオートEQの状態を見せるために使う
+  let latest = null; // 最後に再生が始まった（つないだ）動画のグラフ。ポップアップにオートEQの状態を見せるために使う
+  const skipped = new WeakSet(); // 接続しない理由をログに出した要素（音量を動かすたびに出さないように、1回だけ出す）
 
   // AudioContext が running になるまで待つ。
   // 自動再生ポリシーで開始できないときは resume() が保留されるので、ユーザー操作のたびに再試行する。
@@ -397,12 +398,16 @@ const AudioGraph = (() => {
   function attach(video) {
     if (!graphs.has(video)) {
       if (!canAttach(video)) {
-        console.info('[audio-fx] MSE で再生していないので接続しません', video.currentSrc);
+        if (!skipped.has(video)) console.info('[audio-fx] MSE で再生していないので接続しません', video.currentSrc);
+        skipped.add(video);
         return Promise.resolve(null);
       }
       graphs.set(video, connect(video));
     }
-    return graphs.get(video);
+    // すでにつないだ動画の再生が始まったときも、ポップアップに状態を見せる対象をその動画にする
+    const pending = graphs.get(video);
+    pending.then((g) => { if (g) latest = g; });
+    return pending;
   }
 
   function update(next) {
