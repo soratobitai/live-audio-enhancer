@@ -175,10 +175,18 @@ body:not(.off) select:disabled {
 }
 
 .feature-note,
-.denoise-note {
+.auto-explain,
+.denoise-note,
+.auto-note {
   display: block;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* オートの「今どうしているか」は、説明と見分けられるよう、本文の色にする */
+.denoise-note,
+.auto-note {
+  color: var(--fg);
 }
 
 .denoise-note {
@@ -189,7 +197,7 @@ body:not(.off) select:disabled {
   display: none;
 }
 
-/* オートのときは強さと状態、手動のときはプリセットと「フラットに戻す」を出す */
+/* オートのときは説明と状態、手動のときはプリセットと「フラットに戻す」を出す */
 body.auto .manual-panel,
 body.auto footer,
 body:not(.auto) .auto-panel {
@@ -198,12 +206,6 @@ body:not(.auto) .auto-panel {
 
 .auto-panel {
   padding-top: 4px;
-}
-
-.auto-note {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .manual-panel {

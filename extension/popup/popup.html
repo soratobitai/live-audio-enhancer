@@ -22,7 +22,8 @@
         <label title="いつもかける"><input type="radio" name="denoiseMode" value="on"><span>オン</span></label>
       </div>
     </div>
-    <small class="feature-note">声以外の音を抑えます。オートは音楽や歌のときに外します</small>
+    <!-- 説明は、選んでいるモード（オフ / オート / オン）に合わせて popup.js で切り替える -->
+    <small class="feature-note denoise-explain"></small>
     <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
       <!-- 方式の名前と注意点は、画面には出さず、マウスを乗せたときに出す -->
       <label title="RNNoise。軽く、音の遅れも小さい">
@@ -59,6 +60,7 @@
       </div>
     </div>
     <div class="auto-panel">
+      <small class="auto-explain">番組に合わせて、聞きやすい音のバランスに整えます</small>
       <small class="auto-note"></small>
     </div>
     <label class="manual-panel">

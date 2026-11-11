@@ -5,6 +5,7 @@ const denoiseSection = document.querySelector('.denoise');
 const denoiseModeInputs = document.querySelectorAll('input[name="denoiseMode"]');
 const engineInputs = document.querySelectorAll('input[name="engine"]');
 const denoiseNote = document.querySelector('.denoise-note');
+const denoiseExplain = document.querySelector('.denoise-explain');
 const levelerSection = document.querySelector('.leveler');
 const levelerInput = document.getElementById('leveler');
 const levelerStrengthInputs = document.querySelectorAll('input[name="levelerStrength"]');
@@ -17,6 +18,12 @@ const resetButton = document.getElementById('reset');
 const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+// ノイズキャンセルの説明。選んでいるモードがどういう意味かを出す
+const DENOISE_EXPLAIN = {
+  off: 'かけません。オンにすると、声以外の音を抑えます',
+  auto: '話し声のときだけかけ、音楽や歌のときは外します',
+  on: 'いつもかけます。音楽では音が乱れることがあります',
+};
 
 let state;
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
@@ -105,16 +112,16 @@ async function showStatus(controls) {
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
   if (state.autoEq) {
     autoNote.textContent = !connected ? notConnected
-      : !status.autoEq?.ready ? '番組の音を分析しています…'
-      : '番組の音に合わせて自動で調整しています';
+      : !status.autoEq?.ready ? '今：番組の音を分析しています…'
+      : '今：番組の音に合わせて調整しています';
     if (status?.autoEq) showGains(controls, status.autoEq.gains);
   }
   if (denoiseAuto()) {
     const judged = status?.denoiseAuto?.state;
     denoiseNote.textContent = !connected ? notConnected
-      : judged === 'speech' ? '話し声なので、かけています'
-      : judged === 'other' ? '音楽や歌などなので、外しています'
-      : '音を調べています…';
+      : judged === 'speech' ? '今：話し声なので、かけています'
+      : judged === 'other' ? '今：音楽や歌などなので、外しています'
+      : '今：音を調べています…';
   }
 }
 
@@ -127,6 +134,7 @@ function render(controls) {
   // ノイズキャンセル：オフ / オート（話し声が主役のときだけかける）/ オン
   const denoiseMode = !state.denoise ? 'off' : state.denoiseAuto ? 'auto' : 'on';
   for (const input of denoiseModeInputs) input.checked = input.value === denoiseMode;
+  denoiseExplain.textContent = DENOISE_EXPLAIN[denoiseMode];
   for (const input of engineInputs) input.checked = input.value === state.engine;
   denoiseSection.classList.toggle('on', state.denoise);
   denoiseNote.hidden = !denoiseAuto();
@@ -136,6 +144,7 @@ function render(controls) {
   for (const input of levelerStrengthInputs) input.checked = input.value === state.levelerStrength;
   levelerSection.classList.toggle('on', state.leveler);
 
+  presetSelect.value = state.eqPreset;
   for (const input of eqModeInputs) input.checked = input.value === (state.autoEq ? 'auto' : 'manual');
   for (const input of [...denoiseModeInputs, ...engineInputs, levelerInput, ...levelerStrengthInputs, ...eqModeInputs]) {
     input.disabled = off;
@@ -167,7 +176,7 @@ function render(controls) {
     statusGeneration += 1;
     clearInterval(statusTimer);
     statusTimer = null;
-    if (denoiseAuto()) denoiseNote.textContent = '音を調べています…';
+    if (denoiseAuto()) denoiseNote.textContent = '今：音を調べています…';
     if (want) {
       showStatus(controls);
       statusTimer = setInterval(() => showStatus(controls), 1000);
