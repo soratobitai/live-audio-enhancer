@@ -7,6 +7,7 @@
 //   npm run verify:<nico / kick / youtube / twitch / tver / abema>   サイトのページから配信を選んで試す
 //   npm run verify:kick -- https://kick.com/xxxx           URL を指定して試す
 //   Chrome の場所が違うときは環境変数 CHROME_PATH で指定する
+//   extension/ 以外（提出用の ZIP を展開したものなど）を試すときは、環境変数 EXTENSION_DIR でフォルダを指定する
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +16,7 @@ import puppeteer from 'puppeteer-core';
 import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const EXTENSION = path.join(ROOT, 'extension');
+const EXTENSION = process.env.EXTENSION_DIR ? path.resolve(process.env.EXTENSION_DIR) : path.join(ROOT, 'extension');
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const MAX_TRIES = 5;
 const TOLERANCE_DB = 1.5;

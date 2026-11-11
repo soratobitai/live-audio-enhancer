@@ -64,6 +64,7 @@
 | 35 | 名前を「Audio FX」から「Live Audio Enhancer」に変える | 完了（「名前」を参照） |
 | 36 | Firefoxのストア（AMO）で公開する準備（提出用のファイル、ストアの文章、スクリーンショット、手順書） | 提出済み・審査待ち（2026-11-11 17:37にv0.22.0を提出。IDは`live-audio-enhancer@mynicotools`。手順は`docs/publish-firefox.md`） |
 | 37 | ポップアップのデザインを見直す（機能ごとのカード、色付きのアイコン、切り替えの形） | 完了（「ポップアップのデザイン」を参照） |
+| 38 | Chromeウェブストアで公開する準備（提出用のZIP、ストアの文章、プライバシーの欄の回答、宣伝用の画像） | 準備完了・提出はこれから（`docs/cws/listing.md`。プライバシーポリシーのページを置く場所が未定） |
 
 ディレイ拡張との同時動作の確認（当初のステップ6）は、対象外になった。
 
@@ -120,13 +121,16 @@ audio-fx/
 │  ├─ sites.js                 自動検証で使う、サイトごとの配信の探し方と再生前の手順（ChromeとFirefoxで共通）
 │  ├─ icons.js                 アイコンの PNG を SVG から作る
 │  ├─ firefox.js               Firefox のストア用のファイルを作る・提出する（ID などを足す）
-│  ├─ amo-screenshots.js       ストア用のスクリーンショットを作る
+│  ├─ amo-screenshots.js       ストア用のスクリーンショットを作る（Chromeのストアでも同じものを使う）
+│  ├─ chrome.js                Chrome ウェブストア用の ZIP を作る
+│  ├─ cws-images.js            Chrome ウェブストア用のアイコン（余白つき）と宣伝用の画像（440×280）を作る
 │  └─ vendor.js                ノイズキャンセルのパッケージからvendor/へファイルをコピー
 ├─ docs/
 │  ├─ handoff.md               このメモ
 │  ├─ publish-firefox.md       Firefox のストア（AMO）で公開する手順
 │  ├─ publish-firefox.pdf      上の手順のうち、提出から公開後までを見やすくした PDF（手順を直しても自動では更新されない）
-│  └─ amo/                     ストアに載せる文章、審査担当者へのメモ、スクリーンショット
+│  ├─ amo/                     Firefox のストアに載せる文章、審査担当者へのメモ、スクリーンショット
+│  └─ cws/                     Chrome ウェブストアに載せる文章、プライバシーの欄の回答、プライバシーポリシー、画像
 └─ dist/                       提出用のファイル（git には入れない）
 ```
 
@@ -136,11 +140,14 @@ audio-fx/
 |---|---|
 | `npm run verify:nico` / `verify:kick` / `verify:youtube` / `verify:twitch` / `verify:tver` / `verify:abema` | Chromeで、サイトから配信を選んで自動検証する。`-- <URL>`で配信を指定できる |
 | `npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema / URL>` | Firefoxで自動検証する |
+| 環境変数`EXTENSION_DIR`を付けて`npm run verify:<サイト>` | `extension/`の代わりに、指定したフォルダ（提出用のZIPを展開したものなど）をChromeで自動検証する |
 | `npm run vendor` | ノイズキャンセルのパッケージから`extension/vendor/`へファイルをコピーし直す |
 | `npm run icons` | `extension/icons/`のSVGから、アイコンのPNG（16・32・48・128px）を作り直す |
 | `npm run pack:firefox` | Firefoxのストア用のファイルを作る（IDなどを足し、Mozillaの検査ツールにかけて、`dist/`にZIPを作る） |
 | `npm run release:firefox` | 新しい版をFirefoxのストアに提出する（AMOのAPIキーが要る。`docs/publish-firefox.md`を参照） |
 | `npm run amo:screenshots` | ストア用のスクリーンショット（1280×800）を作り直す |
+| `npm run pack:chrome` | Chromeウェブストア用のZIPを`dist/`に作る（ソースマップを除くだけで、manifestは共通のまま） |
+| `npm run cws:images` | Chromeウェブストア用のアイコン（128×128、絵柄96×96）と宣伝用の画像（440×280）を作り直す |
 
 - `npm run vendor`のファイルの取り方は、パッケージによって違う
   - `@sapphi-red/web-noise-suppressor`：devDependenciesに入れて、`node_modules`から取る
