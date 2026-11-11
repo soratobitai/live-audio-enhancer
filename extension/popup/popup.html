@@ -7,15 +7,21 @@
 </head>
 <body>
   <header>
+    <img class="logo" src="../icons/icon-32.png" width="22" height="22" alt="">
     <h1>Live Audio Enhancer</h1>
-    <label class="switch">
+    <label class="switch" title="オフにすると元の音に戻ります">
       <span>有効</span>
       <input type="checkbox" role="switch" id="enabled">
     </label>
   </header>
-  <section class="feature denoise">
-    <div class="feature-head">
-      <span>ノイズキャンセル</span>
+
+  <!-- 機能ごとにカードにまとめる。見出しの左のアイコンは、機能を見分けるための飾り -->
+  <section class="card feature denoise">
+    <div class="card-head">
+      <span class="badge badge-denoise" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>
+      </span>
+      <h2>ノイズキャンセル</h2>
       <div class="segmented three" role="radiogroup" aria-label="ノイズキャンセル">
         <label title="かけない"><input type="radio" name="denoiseMode" value="off"><span>オフ</span></label>
         <label title="話し声が主役のときだけかけ、音楽や歌のときは外す"><input type="radio" name="denoiseMode" value="auto"><span>オート</span></label>
@@ -23,7 +29,7 @@
       </div>
     </div>
     <!-- 説明は、選んでいるモード（オフ / オート / オン）に合わせて popup.js で切り替える -->
-    <small class="feature-note denoise-explain"></small>
+    <p class="note denoise-explain"></p>
     <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
       <!-- 方式の名前と注意点は、画面には出さず、マウスを乗せたときに出す -->
       <label title="RNNoise。軽く、音の遅れも小さい">
@@ -35,44 +41,51 @@
         <span>強め</span>
       </label>
     </div>
-    <small class="denoise-note" hidden></small>
+    <p class="status denoise-note" hidden></p>
   </section>
-  <section class="feature leveler">
-    <label class="switch option">
-      <span>
-        音量をそろえる
-        <small>大きい音を抑え、小さい音を持ち上げます</small>
+
+  <section class="card feature leveler">
+    <div class="card-head">
+      <span class="badge badge-leveler" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 9h3M4 15h3M17 9h3M17 15h3M10 7v10M14 7v10"/></svg>
       </span>
-      <input type="checkbox" role="switch" id="leveler">
-    </label>
+      <h2>音量をそろえる</h2>
+      <label class="switch">
+        <input type="checkbox" role="switch" id="leveler" aria-label="音量をそろえる">
+      </label>
+    </div>
+    <p class="note">大きい音を抑え、小さい音を持ち上げます</p>
     <div class="choices" role="radiogroup" aria-label="音量をそろえる強さ">
       <label><input type="radio" name="levelerStrength" value="standard"><span>標準</span></label>
       <label><input type="radio" name="levelerStrength" value="strong"><span>強め</span></label>
     </div>
   </section>
-  <section class="eq">
+
+  <section class="card eq">
     <!-- EQ のゲインの決め方。オート（番組に合わせて自動）か、手動（プリセットとスライダー）のどちらか -->
-    <div class="eq-head">
-      <span>イコライザー</span>
+    <div class="card-head">
+      <span class="badge badge-eq" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 4v16M12 4v16M18 4v16"/><circle cx="6" cy="14" r="2.2"/><circle cx="12" cy="8" r="2.2"/><circle cx="18" cy="12" r="2.2"/></svg>
+      </span>
+      <h2>イコライザー</h2>
       <div class="segmented" role="radiogroup" aria-label="イコライザーの決め方">
         <label><input type="radio" name="eqMode" value="auto"><span>オート</span></label>
         <label><input type="radio" name="eqMode" value="manual"><span>手動</span></label>
       </div>
     </div>
     <div class="auto-panel">
-      <small class="auto-explain">番組に合わせて、聞きやすい音のバランスに整えます</small>
-      <small class="auto-note"></small>
+      <p class="note">番組に合わせて、聞きやすい音のバランスに整えます</p>
+      <p class="status auto-note"></p>
     </div>
-    <label class="manual-panel">
-      <span>プリセット</span>
-      <select id="eqPreset"></select>
-    </label>
+    <div class="manual-panel">
+      <select id="eqPreset" aria-label="プリセット"></select>
+      <button type="button" id="reset" class="icon-button" title="フラットに戻す" aria-label="フラットに戻す">
+        <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg>
+      </button>
+    </div>
     <div id="bands"></div>
   </section>
-  <footer>
-    <span class="hint">つまみをダブルクリックで 0 dB</span>
-    <button type="button" id="reset">フラットに戻す</button>
-  </footer>
+
   <script src="../shared/settings.js"></script>
   <script src="popup.js"></script>
 </body>

@@ -34,6 +34,13 @@ let statusGeneration = 0; // 問い合わせを始め直すたびに増やす。
 let statusReplied = 0; // 表示に使った返事の番号。順番が入れ替わって届いた古い返事を捨てるため
 let statusAsked = 0;
 
+// スライダーの色を、0dB（真ん中）から今の値まで伸ばす（popup.css の --a と --b）
+function paintFill(input) {
+  const p = ((Number(input.value) + Settings.GAIN_RANGE) / (2 * Settings.GAIN_RANGE)) * 100;
+  input.style.setProperty('--a', `${Math.min(p, 50)}%`);
+  input.style.setProperty('--b', `${Math.max(p, 50)}%`);
+}
+
 // ノイズキャンセルのオートが動いているか（全体が有効で、ノイズキャンセルがオート）
 const denoiseAuto = () => state.enabled && state.denoise && state.denoiseAuto;
 
@@ -53,6 +60,7 @@ function buildBands() {
     input.max = Settings.GAIN_RANGE;
     input.step = 0.5;
     input.dataset.band = i;
+    input.title = 'ダブルクリックで 0 dB';
 
     const value = document.createElement('output');
 
@@ -62,6 +70,7 @@ function buildBands() {
       state.eqPreset = 'custom';
       presetSelect.value = 'custom';
       value.textContent = gainText(state.gains[i]);
+      paintFill(input);
       Settings.save(state);
     });
     input.addEventListener('dblclick', () => {
@@ -89,6 +98,7 @@ function showGains(controls, gains) {
   controls.forEach(({ input, value }, i) => {
     input.value = gains[i];
     value.textContent = gainText(gains[i]);
+    paintFill(input);
   });
 }
 
@@ -112,6 +122,7 @@ async function showStatus(controls) {
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
   if (state.autoEq) {
     const target = status?.autoEq?.target;
+    autoNote.dataset.state = connected && status.autoEq?.ready ? target : 'wait';
     autoNote.textContent = !connected ? notConnected
       : !status.autoEq?.ready ? '今：番組の音を分析しています…'
       : target === 'speech' ? '今：話し声に合わせて調整しています'
@@ -121,6 +132,7 @@ async function showStatus(controls) {
   }
   if (denoiseAuto()) {
     const judged = status?.judge?.state;
+    denoiseNote.dataset.state = connected ? judged ?? 'wait' : 'wait';
     denoiseNote.textContent = !connected ? notConnected
       : judged === 'speech' ? '今：話し声なので、かけています'
       : judged === 'other' ? '今：音楽や歌などなので、外しています'

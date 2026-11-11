@@ -1,59 +1,183 @@
+/* 色はここでまとめて決める。ダークモードでは下で上書きする */
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --muted: #656d76;
-  --line: #d0d7de;
-  --track: #c4ccd5;
-  --accent: #0969da;
+  --bg: #f3f5fa;
+  --card: #ffffff;
+  --fg: #1b1f27;
+  --muted: #6b7280;
+  --line: #e4e8f0;
+  --chip: #eef1f7;
+  --track: #d9dee8;
+  --accent: #3b6cf6;
+  --accent-soft: rgba(59, 108, 246, 0.12);
+  /* アイコンと同じ、青から紫のグラデーション */
+  --brand: linear-gradient(135deg, #2f80ed, #7b3fe4);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1f2328;
-    --fg: #e6edf3;
-    --muted: #8d96a0;
-    --line: #3d444d;
-    --track: #4a525c;
-    --accent: #4493f8;
+    --bg: #14171d;
+    --card: #1e222a;
+    --fg: #e8eaf0;
+    --muted: #9aa3b2;
+    --line: #2d333d;
+    --chip: #2a2f39;
+    --track: #3a414d;
+    --accent: #6d9bff;
+    --accent-soft: rgba(109, 155, 255, 0.16);
+    --shadow: none;
   }
 }
 
 body {
   margin: 0;
-  width: 300px;
-  padding: 12px 16px 14px;
+  width: 340px;
+  padding: 12px;
+  box-sizing: border-box;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.4 system-ui, "Segoe UI", "Yu Gothic UI", "Hiragino Sans", sans-serif;
+  font: 13px/1.45 "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
 }
 
+p {
+  margin: 0;
+}
+
+/* 見出し：アイコン・名前・全体の有効 */
 header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
+  padding: 0 2px 2px;
+}
+
+.logo {
+  border-radius: 6px;
 }
 
 h1 {
+  flex: 1;
   margin: 0;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
+/* 機能ごとのカード */
+.card {
+  margin-top: 8px;
+  padding: 10px 12px 11px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* 機能を見分けるための色付きのアイコン */
+.badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.badge svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.badge circle {
+  fill: #fff;
+  stroke: none;
+}
+
+.badge-denoise {
+  background: linear-gradient(135deg, #2f80ed, #22c1ee);
+}
+
+.badge-leveler {
+  background: linear-gradient(135deg, #7b3fe4, #c35be0);
+}
+
+.badge-eq {
+  background: var(--brand);
+}
+
+/* 説明（薄い色）と、オートの「今：〜」（本文の色。左の点の色で、今の状態を示す） */
+.note {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+
+.status::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.status[data-state="speech"]::before {
+  background: #22c55e;
+}
+
+.status[data-state="other"]::before,
+.status[data-state="music"]::before {
+  background: #f59e0b;
+}
+
+.status[data-state="neutral"]::before {
+  background: var(--accent);
+}
+
+.status[hidden] {
+  display: none;
+}
+
+/* スイッチ（全体の有効、音量をそろえる） */
 .switch {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 .switch input {
   appearance: none;
   position: relative;
-  width: 34px;
+  width: 36px;
   height: 20px;
   margin: 0;
   border-radius: 10px;
@@ -71,15 +195,16 @@ h1 {
   height: 16px;
   border-radius: 50%;
   background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: transform 0.15s;
 }
 
 .switch input:checked {
-  background: var(--accent);
+  background: var(--brand);
 }
 
 .switch input:checked::before {
-  transform: translateX(14px);
+  transform: translateX(16px);
 }
 
 .switch input:focus-visible {
@@ -87,57 +212,21 @@ h1 {
   outline-offset: 2px;
 }
 
-.denoise,
-.leveler {
-  padding: 6px 0 8px;
-  border-bottom: 1px solid var(--line);
-}
-
-.option {
-  justify-content: space-between;
-}
-
-.option small,
-.choices small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.eq-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 6px;
-}
-
-select {
-  padding: 2px 4px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-}
-
-body:not(.off) select:disabled {
-  opacity: 0.5;
-}
-
-/* オート / 手動の切り替え。ラジオボタン自体は隠し、選んでいる側を塗りつぶす */
+/* 2つか3つから選ぶ切り替え（ノイズキャンセルのオフ / オート / オン、イコライザーのオート / 手動）。
+   ラジオボタン自体は隠し、選んでいる側を塗りつぶす */
 .segmented {
-  display: inline-grid;
-  grid-template-columns: 1fr 1fr;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--chip);
 }
 
 .segmented label {
   cursor: pointer;
 }
 
-.segmented input {
+.segmented input,
+.choices input {
   position: absolute;
   opacity: 0;
   pointer-events: none;
@@ -145,185 +234,204 @@ body:not(.off) select:disabled {
 
 .segmented span {
   display: block;
-  padding: 2px 14px;
-  text-align: center;
-}
-
-.segmented input:checked + span {
-  background: var(--accent);
-  color: #fff;
-}
-
-.segmented input:focus-visible + span {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-/* 3つから選ぶ切り替え（ノイズキャンセルのオフ / オート / オン） */
-.segmented.three {
-  grid-template-columns: repeat(3, 1fr);
+  padding: 3px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
 }
 
 .segmented.three span {
-  padding: 2px 10px;
+  padding: 3px 9px;
 }
 
-.feature-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.segmented input:checked + span {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(59, 108, 246, 0.35);
 }
 
-.feature-note,
-.auto-explain,
-.denoise-note,
-.auto-note {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
+.segmented input:focus-visible + span,
+.choices input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
-/* オートの「今どうしているか」は、説明と見分けられるよう、本文の色にする */
-.denoise-note,
-.auto-note {
-  color: var(--fg);
-}
-
-.denoise-note {
-  margin-top: 4px;
-}
-
-.denoise-note[hidden] {
-  display: none;
-}
-
-/* オートのときは説明と状態、手動のときはプリセットと「フラットに戻す」を出す */
-body.auto .manual-panel,
-body.auto footer,
-body:not(.auto) .auto-panel {
-  display: none;
-}
-
-.auto-panel {
-  padding-top: 4px;
-}
-
-.manual-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 6px;
-}
-
-/* オートEQ のあいだは、スライダーは自動で決めた値を表示するだけにする */
-body:not(.off) .band input:disabled {
-  opacity: 0.6;
-}
-
-/* ラジオボタンを並べた選択肢。ラジオボタン自体は隠し、枠で選択中を示す */
+/* 強さの選択肢（標準 / 強め） */
 .choices {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-top: 6px;
-  text-align: center;
+  margin-top: 8px;
 }
 
 .choices label {
   cursor: pointer;
 }
 
-.choices input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .choices span {
   display: block;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  padding: 5px 0;
+  border-radius: 10px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
 }
 
 .choices input:checked + span {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.choices input:focus-visible + span {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 /* 機能がオフのときは強さの選択肢を薄く表示する（選ぶことはできる） */
 .feature:not(.on) .choices {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
-/* 10バンド並ぶので、ポップアップの高さ（最大 600px）に収まるよう行の間隔を詰める */
+/* イコライザー：オートのときは説明と状態、手動のときはプリセットと「フラットに戻す」を出す */
+body.auto .manual-panel,
+body:not(.auto) .auto-panel {
+  display: none;
+}
+
+.manual-panel {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+select {
+  flex: 1;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--chip);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--chip);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button:hover:enabled {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 帯域ごとのスライダー。0dB を中心に、上げた分・下げた分だけ色を伸ばす（--a と --b は popup.js で決める） */
+#bands {
+  margin-top: 8px;
+}
+
 .band {
   display: grid;
-  grid-template-columns: 72px 1fr 58px;
+  grid-template-columns: 62px 1fr 50px;
   align-items: center;
   gap: 8px;
-  padding: 1px 0;
+  height: 17px;
 }
 
 .band .name {
   color: var(--muted);
-}
-
-.band input {
-  width: 100%;
-  margin: 0;
-  accent-color: var(--accent);
+  font-size: 11.5px;
 }
 
 .band output {
+  font-size: 11.5px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-/* 全体を無効にしたときは、各欄をまとめて薄く表示し、操作できなくする。
-   欄ごとに薄くしているので、中の部品（選択欄・スライダー）は重ねて薄くしない */
-body.off .denoise,
-body.off .leveler,
-body.off .eq {
-  opacity: 0.45;
-}
-
-body.off :is(.denoise, .leveler, .eq) :is(label, input, select) {
-  cursor: default;
-}
-
-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-}
-
-.hint {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-button {
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+.band input {
+  --a: 50%;
+  --b: 50%;
+  --fill: var(--accent);
+  width: 100%;
+  height: 16px;
+  margin: 0;
   background: transparent;
-  color: var(--fg);
-  font: inherit;
+  appearance: none;
   cursor: pointer;
 }
 
-button:hover:enabled {
-  border-color: var(--muted);
+.band input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--track) var(--a), var(--fill) var(--a), var(--fill) var(--b), var(--track) var(--b));
+}
+
+.band input::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--track) var(--a), var(--fill) var(--a), var(--fill) var(--b), var(--track) var(--b));
+}
+
+.band input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 2px solid var(--fill);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  appearance: none;
+}
+
+.band input::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--fill);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* オートのあいだは、スライダーは自動で決めた値を表示するだけにする（色を変えて、動かせないことを示す） */
+.band input:disabled {
+  cursor: default;
+}
+
+body:not(.off) .band input:disabled {
+  --fill: #8b7cf0;
+}
+
+/* 全体を無効にしたときは、各カードをまとめて薄く表示し、操作できなくする */
+body.off .card {
+  opacity: 0.5;
+}
+
+body.off .card :is(label, input, select, button) {
+  cursor: default;
 }
 
 button:disabled {
-  opacity: 0.45;
   cursor: default;
 }
