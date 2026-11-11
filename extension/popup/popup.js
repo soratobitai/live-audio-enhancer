@@ -106,7 +106,7 @@ async function showStatus(controls) {
   if (state.autoEq) {
     autoNote.textContent = !connected ? notConnected
       : !status.autoEq?.ready ? '番組の音を分析しています…'
-      : '番組の音に合わせて自動で調整しています（試作）';
+      : '番組の音に合わせて自動で調整しています';
     if (status?.autoEq) showGains(controls, status.autoEq.gains);
   }
   if (denoiseAuto()) {
