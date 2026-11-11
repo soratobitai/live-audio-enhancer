@@ -29,7 +29,7 @@ const FLAT = GAINS_A.map(() => 0);
 // eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。keepEq なら手動の EQ は触らない。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
 const BASE = {
-  enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false,
+  enabled: true, denoise: false, denoiseAuto: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false,
 };
 // 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
 const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
@@ -52,6 +52,8 @@ const SCENARIOS = [
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT, wait: 5000 },
   { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
+  // オートは、話し声が主役ならかけ、音楽などなら外す。判定に 4 秒かかるので長めに待つ。判定と、かけ外しが合っているかを確かめる
+  { ...BASE, name: 'ノイズキャンセル（オート）', denoise: true, denoiseAuto: true, gains: FLAT, wait: 8000 },
   { ...BASE, name: 'すべて無効に戻す（EQ だけ有効）', engine: 'deepfilternet', gains: GAINS_A },
 ];
 
@@ -159,6 +161,8 @@ const INSTALL_PROBE = `(async () => {
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
         auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
+        // ノイズキャンセルのオートの判定（'undecided' / 'speech' / 'other'）と、大きい瞬間に消した量
+        denoiseAuto: g.denoiseAuto ? { state: g.denoiseAuto.state(), removal: g.denoiseAuto.removal() } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -205,8 +209,8 @@ const INSTALL_PROBE = `(async () => {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq) => {
+async function setPopup(popup, { enabled, denoise, denoiseAuto, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq }) {
+  await popup.evaluate((enabled, denoise, denoiseAuto, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq) => {
     // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
     const enabledSwitch = document.getElementById('enabled');
     if (!enabledSwitch.checked) enabledSwitch.click();
@@ -234,12 +238,13 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStren
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
-    for (const [id, on] of [['denoise', denoise], ['leveler', leveler]]) {
-      const sw = document.getElementById(id);
-      if (sw.checked !== on) sw.click();
-    }
+    // ノイズキャンセルは、オフ / オート / オンの切り替え
+    const mode = document.querySelector(`input[name="denoiseMode"][value="${!denoise ? 'off' : denoiseAuto ? 'auto' : 'on'}"]`);
+    if (!mode.checked) mode.click();
+    const levelerSwitch = document.getElementById('leveler');
+    if (levelerSwitch.checked !== leveler) levelerSwitch.click();
     if (!enabled) enabledSwitch.click();
-  }, enabled, denoise, engine, leveler, levelerStrength, autoEq, gains ?? null, eqPreset ?? null, !!keepEq);
+  }, enabled, denoise, !!denoiseAuto, engine, leveler, levelerStrength, autoEq, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
 async function check(browser, extId, url) {
@@ -417,12 +422,16 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
   if (scenario.denoise && !p.engines[scenario.engine]?.ready) return { ok: false, reason: `${scenario.engine} のノードがない` };
+  if (scenario.denoiseAuto && !p.denoiseAuto) return { ok: false, reason: 'ノイズキャンセルのオートの判定が動いていない' };
+  if (!scenario.denoiseAuto && p.denoiseAuto) return { ok: false, reason: 'ノイズキャンセルのオートの判定が止まっていない' };
+  // オートのときは、話し声と判定したときだけかける（判定中や音楽などのときは素通し）
+  const engaged = scenario.denoise && (!scenario.denoiseAuto || p.denoiseAuto.state === 'speech');
   const leftover = Object.keys(p.engines).filter((k) => !(scenario.denoise && k === scenario.engine));
   if (leftover.length) return { ok: false, reason: `使っていない方式が止まっていない: ${leftover.join(', ')}` };
   for (const [name, e] of Object.entries(p.engines)) {
-    if (!near(e.wet, scenario.denoise && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
+    if (!near(e.wet, engaged && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
   }
-  if (!near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) return { ok: false, reason: 'nrDry のゲインが設定と違う' };
+  if (!near(p.nrDry, engaged ? 0 : 1, 0.01)) return { ok: false, reason: 'nrDry のゲインが設定と違う' };
   if (!near(p.comp.wet, scenario.leveler ? 1 : 0, 0.01) || !near(p.comp.dry, scenario.leveler ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'compWet / compDry のゲインが設定と違う' };
   }
@@ -481,13 +490,17 @@ function report(r, j) {
     const rj = j.results[i];
     const p = m.params;
     const eq = scenario.autoEq ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}${scenario.denoiseAuto ? '・オート' : ''}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));
     console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB　リミッターの最大圧縮量 ${p.limiter.maxReduction.toFixed(1)}dB`);
+    if (p.denoiseAuto) {
+      const r = p.denoiseAuto.removal;
+      console.log(`    ノイズキャンセルのオート: 判定 ${p.denoiseAuto.state}　大きい瞬間に消した量 ${r === null ? '-' : r.toFixed(1)}dB`);
+    }
     if (p.auto?.levels) {
       // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
       const { levels, target, gains } = p.auto;

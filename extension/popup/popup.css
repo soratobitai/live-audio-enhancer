@@ -159,6 +159,36 @@ body:not(.off) select:disabled {
   outline-offset: -2px;
 }
 
+/* 3つから選ぶ切り替え（ノイズキャンセルのオフ / オート / オン） */
+.segmented.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.segmented.three span {
+  padding: 2px 10px;
+}
+
+.feature-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.feature-note,
+.denoise-note {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.denoise-note {
+  margin-top: 4px;
+}
+
+.denoise-note[hidden] {
+  display: none;
+}
+
 /* オートのときは強さと状態、手動のときはプリセットと「フラットに戻す」を出す */
 body.auto .manual-panel,
 body.auto footer,

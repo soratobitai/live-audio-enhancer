@@ -14,13 +14,15 @@
     </label>
   </header>
   <section class="feature denoise">
-    <label class="switch option">
-      <span>
-        ノイズキャンセル
-        <small>声以外の音を抑えます。音楽は音質が落ちることがあります</small>
-      </span>
-      <input type="checkbox" role="switch" id="denoise">
-    </label>
+    <div class="feature-head">
+      <span>ノイズキャンセル</span>
+      <div class="segmented three" role="radiogroup" aria-label="ノイズキャンセル">
+        <label title="かけない"><input type="radio" name="denoiseMode" value="off"><span>オフ</span></label>
+        <label title="話し声が主役のときだけかけ、音楽や歌のときは外す"><input type="radio" name="denoiseMode" value="auto"><span>オート</span></label>
+        <label title="いつもかける"><input type="radio" name="denoiseMode" value="on"><span>オン</span></label>
+      </div>
+    </div>
+    <small class="feature-note">声以外の音を抑えます。オートは音楽や歌のときに外します</small>
     <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
       <!-- 方式の名前と注意点は、画面には出さず、マウスを乗せたときに出す -->
       <label title="RNNoise。軽く、音の遅れも小さい">
@@ -32,6 +34,7 @@
         <span>強め</span>
       </label>
     </div>
+    <small class="denoise-note" hidden></small>
   </section>
   <section class="feature leveler">
     <label class="switch option">

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Audio FX",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "ライブ配信の音声にイコライザーとノイズキャンセルをかける",
   "icons": {
     "16": "icons/icon-16.png",
@@ -28,7 +28,7 @@
         "https://tver.jp/*",
         "https://abema.tv/*"
       ],
-      "js": ["shared/settings.js", "audio/auto-eq.js", "audio/audio-graph.js", "content/main.js"],
+      "js": ["shared/settings.js", "audio/auto-eq.js", "audio/denoise-auto.js", "audio/audio-graph.js", "content/main.js"],
       "run_at": "document_idle"
     }
   ],

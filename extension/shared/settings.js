@@ -49,7 +49,7 @@ const Settings = (() => {
   // オートEQ がオンのあいだは、eqPreset と gains（手動の EQ）は使わずに残しておき、オフに戻すとそれを使う
   function defaults() {
     return {
-      enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
+      enabled: true, denoise: false, denoiseAuto: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
       autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0),
     };
   }
@@ -78,6 +78,8 @@ const Settings = (() => {
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
+      // ノイズキャンセルのオート（話し声が主役のときだけかける）。denoise がオンのときだけ意味を持つ
+      denoiseAuto: typeof v.denoiseAuto === 'boolean' ? v.denoiseAuto : d.denoiseAuto,
       engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
       leveler: typeof v.leveler === 'boolean' ? v.leveler : legacyLeveler !== null,
       levelerStrength: STRENGTHS.includes(v.levelerStrength) ? v.levelerStrength

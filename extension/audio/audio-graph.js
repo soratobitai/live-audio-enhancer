@@ -244,6 +244,19 @@ const AudioGraph = (() => {
 
   // 使わなくなった方式は、出力をフェードアウトしてから止める（裏で処理し続けて CPU を使わないように）。
   // もう一度選ばれたときは作り直す（WASM やモデルは読み込み済みなので速い）
+  // ノイズキャンセルのオートの判定を、使っているノイズキャンセルのノード（node）に合わせて始める・止める。
+  // 方式を切り替えたときは、新しいノードで判定し直す。判定が変わったら設定を反映し直す
+  function applyDenoiseAuto(g, node) {
+    if (g.denoiseAuto && g.denoiseAuto.node !== node) {
+      g.denoiseAuto.stop();
+      g.denoiseAuto = null;
+    }
+    if (node && !g.denoiseAuto) {
+      g.denoiseAuto = DenoiseAuto.create(g.source.context, g.source, node, () => apply(g, true));
+      g.denoiseAuto.node = node;
+    }
+  }
+
   function stopEngine(g, name) {
     const engine = g.engines[name];
     delete g.engines[name];
@@ -295,6 +308,7 @@ const AudioGraph = (() => {
     // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
     return {
       element, source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, volume, engines: {}, auto: null,
+      denoiseAuto: null,
     };
   }
 
@@ -351,7 +365,10 @@ const AudioGraph = (() => {
     // 全体を無効にしているあいだは音に使わないので、CPU を使わないように止める（有効に戻すと作り直す。0.2〜0.4 秒）
     const denoise = settings.enabled && settings.denoise;
     const active = denoise ? g.engines[settings.engine] : undefined;
-    const using = active?.node ? active : null;
+    // オートのときは、話し声が主役と判定したあいだだけかける。ノードは動かしたまま判定を続ける
+    applyDenoiseAuto(g, settings.denoiseAuto && active?.node ? active.node : null);
+    const paused = !!g.denoiseAuto && g.denoiseAuto.state() !== 'speech';
+    const using = active?.node && !paused ? active : null;
     applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
@@ -418,9 +435,11 @@ const AudioGraph = (() => {
   // ポップアップに見せる状態。オートEQ の分析が済んでいるかと、今の補正量
   function status() {
     const auto = latest?.auto;
+    const denoiseAuto = latest?.denoiseAuto;
     return {
       connected: !!latest,
       autoEq: auto ? { ready: auto.ready(), gains: auto.gains() } : null,
+      denoiseAuto: denoiseAuto ? { state: denoiseAuto.state(), removal: denoiseAuto.removal() } : null,
     };
   }
 
