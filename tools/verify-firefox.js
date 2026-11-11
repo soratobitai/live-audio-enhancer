@@ -161,7 +161,7 @@ async function check(browser, url) {
     await page.bringToFront();
     await sleep(1000);
     const afterPreset = await probe(page, 'measure', {});
-    const popupJudge = popupResult.options < 14 ? { ng: 'プリセットの選択肢が足りない' }
+    const popupJudge = popupResult.options < 13 ? { ng: 'プリセットの選択肢が足りない' }
       : !popupResult.connected ? { ng: '配信のタブに状態を問い合わせられない' }
       : !popupResult.news.every((g, i) => near(afterPreset.gains[i], g, 0.1)) ? { ng: 'プリセットのゲインが EQ に入っていない' }
       : { ok: true };

@@ -279,7 +279,7 @@ const AudioGraph = (() => {
     dry.connect(output);
     output.connect(c.destination);
     // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null。
-    // auto: オートEQ の分析（オートEQ を選んでいるあいだだけ動かす）
+    // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
     return {
       source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, engines: {}, auto: null,
     };
@@ -288,9 +288,9 @@ const AudioGraph = (() => {
   // EQ のゲインを決める。オートEQ のときは分析した結果を、それ以外は設定のゲイン（手動かプリセット）を使う
   function applyEq(g, ramp) {
     const c = g.source.context;
-    if (settings.eqPreset === 'auto') {
+    if (settings.autoEq) {
       g.auto ??= AutoEq.create(c, g.eqIn, (gains) => {
-        if (settings.eqPreset !== 'auto') return;
+        if (!settings.autoEq) return;
         gains.forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       });
       g.auto.setStrength(settings.autoStrength);

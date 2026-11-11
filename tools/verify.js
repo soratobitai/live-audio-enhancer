@@ -26,15 +26,17 @@ const GAINS_B = [0, 3, 0, 0, 0, -4, 0, 0, 2, 0];
 const FLAT = GAINS_A.map(() => 0);
 
 // ポップアップで順に設定し、それぞれ測定する。
-// eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。
+// eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。keepEq なら手動の EQ は触らない。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
-const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', autoStrength: 'standard' };
+const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', autoEq: false, autoStrength: 'standard' };
 // オートEQ の強さごとの補正の上限（±dB、extension/audio/auto-eq.js の STRENGTHS と同じ値）
 const AUTO_LIMITS = { gentle: 6, standard: 9, strong: 12 };
 const SCENARIOS = [
-  { ...BASE, name: 'オートEQ（標準）', eqPreset: 'auto', wait: 20000 },
+  // 手動の EQ をニュースにしてからオートEQ をオンにし、オフに戻したときにニュースに戻るかを確かめる
+  { ...BASE, name: 'オートEQ（標準）', autoEq: true, eqPreset: 'news', wait: 20000 },
   // 強さを変えると、分析済みの結果からすぐに補正し直す。ゲインが追いつくまで少し待つ
-  { ...BASE, name: 'オートEQ（強め）', eqPreset: 'auto', autoStrength: 'strong', wait: 4000 },
+  { ...BASE, name: 'オートEQ（強め）', autoEq: true, autoStrength: 'strong', eqPreset: 'news', keepEq: true, wait: 4000 },
+  { ...BASE, name: 'オートEQ をオフに戻す（手動のニュースに戻る）', eqPreset: 'news', keepEq: true },
   { ...BASE, name: 'EQ 有効', gains: GAINS_A },
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
@@ -141,19 +143,25 @@ const INSTALL_PROBE = `(async () => {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, autoStrength, gains, eqPreset }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, autoStrength, gains, eqPreset) => {
-    if (eqPreset) {
-      const select = document.getElementById('eqPreset');
-      select.value = eqPreset;
-      select.dispatchEvent(new Event('change'));
-    } else {
-      gains.forEach((gain, i) => {
-        const input = document.querySelector(`.band input[data-band="${i}"]`);
-        input.value = gain;
-        input.dispatchEvent(new Event('input'));
-      });
+async function setPopup(popup, { enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq) => {
+    // オートEQ のあいだは手動の EQ を操作できないので、手動の EQ を変えるときは先にオートEQ をオフにする
+    const autoSwitch = document.getElementById('autoEq');
+    if (!keepEq) {
+      if (autoSwitch.checked) autoSwitch.click();
+      if (eqPreset) {
+        const select = document.getElementById('eqPreset');
+        select.value = eqPreset;
+        select.dispatchEvent(new Event('change'));
+      } else {
+        gains.forEach((gain, i) => {
+          const input = document.querySelector(`.band input[data-band="${i}"]`);
+          input.value = gain;
+          input.dispatchEvent(new Event('input'));
+        });
+      }
     }
+    if (autoSwitch.checked !== autoEq) autoSwitch.click();
     for (const [name, value] of [['engine', engine], ['leveler', leveler], ['autoStrength', autoStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
@@ -162,7 +170,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, autoStrength
       const sw = document.getElementById(id);
       if (sw.checked !== on) sw.click();
     }
-  }, enabled, denoise, engine, leveler, autoStrength, gains ?? null, eqPreset ?? null);
+  }, enabled, denoise, engine, leveler, autoEq, autoStrength, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
 async function check(browser, extId, url) {
@@ -266,7 +274,7 @@ function judgeRun({ scenario, m }) {
   if (m.peak > 1) return { ok: false, reason: `出力が 0dBFS を超えた（ピーク ${m.peak.toFixed(3)}、音割れ）` };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
-  if (scenario.eqPreset === 'auto') {
+  if (scenario.autoEq) {
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
     const limit = AUTO_LIMITS[scenario.autoStrength];
     if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
@@ -319,7 +327,7 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    const eq = scenario.eqPreset === 'auto' ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
+    const eq = scenario.autoEq ? `オート（${scenario.autoStrength}）` : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
     console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));

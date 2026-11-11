@@ -5,9 +5,9 @@ const denoiseInput = document.getElementById('denoise');
 const denoiseSection = document.querySelector('.denoise');
 const engineInputs = document.querySelectorAll('input[name="engine"]');
 const levelerInputs = document.querySelectorAll('input[name="leveler"]');
-const eqSection = document.querySelector('.eq');
 const presetSelect = document.getElementById('eqPreset');
-const autoOptions = document.querySelector('.auto-options');
+const autoEqInput = document.getElementById('autoEq');
+const autoStrengths = document.querySelector('.strengths');
 const autoStrengthInputs = document.querySelectorAll('input[name="autoStrength"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
@@ -16,6 +16,7 @@ const resetButton = document.getElementById('reset');
 const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+const AUTO_DESCRIPTION = '番組の音に合わせて、EQ を自動で調整します';
 
 let state;
 let autoTimer = null;
@@ -62,7 +63,6 @@ function buildBands() {
 function buildPresets() {
   const add = (parent, value, label) => parent.append(new Option(label, value));
   add(presetSelect, 'custom', 'カスタム');
-  add(presetSelect, 'auto', 'オート（試作）');
   const group = document.createElement('optgroup');
   group.label = 'プリセット';
   for (const p of Settings.PRESETS) add(group, p.id, p.label);
@@ -104,10 +104,15 @@ function render(controls) {
   for (const input of autoStrengthInputs) input.checked = input.value === state.autoStrength;
   document.body.classList.toggle('off', !state.enabled);
   presetSelect.value = state.eqPreset;
+  autoEqInput.checked = state.autoEq;
 
-  const auto = state.eqPreset === 'auto';
-  eqSection.classList.toggle('auto', auto);
-  autoOptions.hidden = !auto;
+  // オートEQ のあいだは、手動の EQ（プリセット・スライダー・フラットに戻す）は操作できない。
+  // スライダーには自動で決めた補正量を表示する。オフに戻すと、手動の EQ の値に戻る
+  const auto = state.autoEq;
+  autoStrengths.hidden = !auto;
+  presetSelect.disabled = auto;
+  resetButton.disabled = auto;
+  for (const { input } of controls) input.disabled = auto;
   clearInterval(autoTimer);
   autoTimer = null;
   if (auto) {
@@ -115,6 +120,7 @@ function render(controls) {
     showAutoEq(controls);
     autoTimer = setInterval(() => showAutoEq(controls), 1000);
   } else {
+    autoNote.textContent = AUTO_DESCRIPTION;
     showGains(controls, state.gains);
   }
 }
@@ -135,6 +141,11 @@ function render(controls) {
     render(controls);
     Settings.save(state);
   });
+  autoEqInput.addEventListener('change', () => {
+    state.autoEq = autoEqInput.checked;
+    render(controls);
+    Settings.save(state);
+  });
   // ラジオボタンの選択肢（ノイズキャンセルの方式、音量をそろえる強さ、オートEQ の強さ）
   for (const [inputs, key] of [[engineInputs, 'engine'], [levelerInputs, 'leveler'], [autoStrengthInputs, 'autoStrength']]) {
     for (const input of inputs) {
@@ -144,7 +155,7 @@ function render(controls) {
       });
     }
   }
-  // プリセットを選んだら、その値をゲインに入れる。カスタムとオートは、手動のゲインをそのまま残す
+  // プリセットを選んだら、その値をゲインに入れる。カスタムは、手動のゲインをそのまま残す
   presetSelect.addEventListener('change', () => {
     state.eqPreset = presetSelect.value;
     const preset = Settings.PRESETS.find((p) => p.id === state.eqPreset);

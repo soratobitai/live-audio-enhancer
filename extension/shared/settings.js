@@ -42,16 +42,17 @@ const Settings = (() => {
     { id: 'gentle', label: '耳にやさしい', gains: [0, 0, 0, 0, 0, 0, -1, -3, -4, -4] },
     { id: 'lowcut', label: '低音カット', gains: [-12, -8, -3, 0, 0, 0, 0, 0, 0, 0] },
   ]);
-  // EQ の選択。custom（手動）、auto（オートEQ）、またはプリセットの id
-  const EQ_MODES = Object.freeze(['custom', 'auto', ...PRESETS.map((p) => p.id)]);
+  // EQ の選択。custom（手動）またはプリセットの id。オートEQ はこれとは別に autoEq でオン・オフする
+  const EQ_MODES = Object.freeze(['custom', ...PRESETS.map((p) => p.id)]);
   // オートEQ の強さ（控えめ / 標準 / 強め）
   const AUTO_STRENGTHS = Object.freeze(['gentle', 'standard', 'strong']);
 
-  // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする
+  // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする。
+  // オートEQ がオンのあいだは、eqPreset と gains（手動の EQ）は使わずに残しておき、オフに戻すとそれを使う
   function defaults() {
     return {
       enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off',
-      eqPreset: 'flat', autoStrength: 'standard', gains: BANDS.map(() => 0),
+      autoEq: false, autoStrength: 'standard', eqPreset: 'flat', gains: BANDS.map(() => 0),
     };
   }
 
@@ -62,14 +63,20 @@ const Settings = (() => {
     if (!v || typeof v !== 'object') return d;
     const clamp = (x) => Math.min(GAIN_RANGE, Math.max(-GAIN_RANGE, x));
     const gains = Array.isArray(v.gains) && v.gains.length === BANDS.length ? v.gains : d.gains;
+    // 以前はオートEQ を eqPreset の 'auto' で表していた。オートEQ をオンにし、EQ はゲインと同じプリセットか、カスタムにする
+    const legacyAuto = v.eqPreset === 'auto';
+    const presetOf = (g) => PRESETS.find((p) => p.gains.every((x, i) => x === g[i]))?.id ?? 'custom';
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
       engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
       leveler: LEVELERS.includes(v.leveler) ? v.leveler : d.leveler,
-      // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
-      eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset : gains === v.gains ? 'custom' : d.eqPreset,
+      autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
       autoStrength: AUTO_STRENGTHS.includes(v.autoStrength) ? v.autoStrength : d.autoStrength,
+      // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
+      eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset
+        : legacyAuto ? presetOf(gains)
+        : gains === v.gains ? 'custom' : d.eqPreset,
       gains: gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
     };
   }
