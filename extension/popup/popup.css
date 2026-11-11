@@ -217,9 +217,10 @@ select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-body.off #bands,
+/* 全体を無効にしたときは、各欄をまとめて薄く表示する（操作はできる） */
 body.off .denoise,
-body.off .leveler {
+body.off .leveler,
+body.off .eq {
   opacity: 0.45;
 }
 
