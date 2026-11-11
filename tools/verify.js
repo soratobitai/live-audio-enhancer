@@ -160,9 +160,13 @@ const INSTALL_PROBE = `(async () => {
         },
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
-        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
-        // ノイズキャンセルのオートの判定（'undecided' / 'speech' / 'other'）と、大きい瞬間に消した量
-        denoiseAuto: g.denoiseAuto ? { state: g.denoiseAuto.state(), removal: g.denoiseAuto.removal() } : null,
+        // target は今使っている目安の形（話し声の判定に合わせて、neutral / speech / music）
+        auto: g.auto ? {
+          ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(),
+          targetName: g.auto.target(), target: AutoEq.TARGETS[g.auto.target()],
+        } : null,
+        // 話し声の判定（'undecided' / 'speech' / 'other'）と、大きい瞬間に消した量
+        judge: g.judge ? { state: g.judge.state(), removal: g.judge.removal() } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -414,6 +418,8 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
     // ほぼ無音の配信（ニコ生の馬房の定点カメラで、大半が -100dB 以下）では、分析に使える音が少なく、20 秒では分析が終わらないことがある
     if (!p.auto?.ready && m.inRmsDb < -60) return { ok: false, skip: true, reason: '音がほとんどなく、オートEQ の分析が終わらない' };
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
+    const expectedTarget = { speech: 'speech', other: 'music' }[p.judge?.state] ?? 'neutral';
+    if (p.auto.targetName !== expectedTarget) return { ok: false, reason: `オートEQ の目安の形（${p.auto.targetName}）が、話し声の判定（${p.judge?.state}）と合っていない` };
     if (p.auto.gains.some((g) => g < -AUTO_LIMIT - 0.01)) return { ok: false, reason: `オートEQ の補正量が -${AUTO_LIMIT}dB を下回っている` };
     if (p.auto.gains.some((g, i) => g > AUTO_BOOST_LIMITS[i] + 0.01)) return { ok: false, reason: 'オートEQ が帯域ごとの上限を超えて持ち上げている' };
     // 実際の配信の音が目安の形とぴったり同じことはないので、補正量がすべて 0 に近いなら補正の計算が働いていない
@@ -430,10 +436,12 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
   if (scenario.denoise && !p.engines[scenario.engine]?.ready) return { ok: false, reason: `${scenario.engine} のノードがない` };
-  if (scenario.denoiseAuto && !p.denoiseAuto) return { ok: false, reason: 'ノイズキャンセルのオートの判定が動いていない' };
-  if (!scenario.denoiseAuto && p.denoiseAuto) return { ok: false, reason: 'ノイズキャンセルのオートの判定が止まっていない' };
-  // オートのときは、話し声と判定したときだけかける（判定中や音楽などのときは素通し）
-  const engaged = scenario.denoise && (!scenario.denoiseAuto || p.denoiseAuto.state === 'speech');
+  // 話し声の判定は、ノイズキャンセルのオートかイコライザーのオートのときだけ動く
+  const judging = scenario.enabled && ((scenario.denoise && scenario.denoiseAuto) || scenario.autoEq);
+  if (judging && !p.judge) return { ok: false, reason: '話し声の判定が動いていない' };
+  if (!judging && p.judge) return { ok: false, reason: '話し声の判定が止まっていない' };
+  // ノイズキャンセルのオートのときは、話し声と判定したときだけかける（判定中や音楽などのときは素通し）
+  const engaged = scenario.denoise && (!scenario.denoiseAuto || p.judge.state === 'speech');
   const leftover = Object.keys(p.engines).filter((k) => !(scenario.denoise && k === scenario.engine));
   if (leftover.length) return { ok: false, reason: `使っていない方式が止まっていない: ${leftover.join(', ')}` };
   for (const [name, e] of Object.entries(p.engines)) {
@@ -505,9 +513,9 @@ function report(r, j) {
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB　リミッターの最大圧縮量 ${p.limiter.maxReduction.toFixed(1)}dB`);
-    if (p.denoiseAuto) {
-      const r = p.denoiseAuto.removal;
-      console.log(`    ノイズキャンセルのオート: 判定 ${p.denoiseAuto.state}　大きい瞬間に消した量 ${r === null ? '-' : r.toFixed(1)}dB`);
+    if (p.judge) {
+      const r = p.judge.removal;
+      console.log(`    話し声の判定: ${p.judge.state}　大きい瞬間に消した量 ${r === null ? '-' : r.toFixed(1)}dB`);
     }
     if (p.auto?.levels) {
       // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
@@ -519,7 +527,7 @@ function report(r, j) {
       const rms = (a) => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length).toFixed(1);
       const present = (a) => a.filter((_, i) => before[i] >= -24);
       console.log(`    オートEQ 目安からのずれ: ${before.map(f).join(', ')} dB`);
-      console.log(`    オートEQ 補正量        : ${gains.map(f).join(', ')} dB`);
+      console.log(`    オートEQ 補正量        : ${gains.map(f).join(', ')} dB（目安の形 ${p.auto.targetName}）`);
       console.log(`    ずれの大きさ（RMS）: 補正前 ${rms(present(before))}dB → 補正後（概算） ${rms(present(after))}dB`);
     }
     console.log('    出口 − 入口（入口は最も強い成分との差。−50dB 未満の帯域は測定しない）:');

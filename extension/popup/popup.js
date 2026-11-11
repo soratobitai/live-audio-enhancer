@@ -111,13 +111,16 @@ async function showStatus(controls) {
   const connected = usable && status?.connected;
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
   if (state.autoEq) {
+    const target = status?.autoEq?.target;
     autoNote.textContent = !connected ? notConnected
       : !status.autoEq?.ready ? '今：番組の音を分析しています…'
+      : target === 'speech' ? '今：話し声に合わせて調整しています'
+      : target === 'music' ? '今：音楽や歌に合わせて調整しています'
       : '今：番組の音に合わせて調整しています';
     if (status?.autoEq) showGains(controls, status.autoEq.gains);
   }
   if (denoiseAuto()) {
-    const judged = status?.denoiseAuto?.state;
+    const judged = status?.judge?.state;
     denoiseNote.textContent = !connected ? notConnected
       : judged === 'speech' ? '今：話し声なので、かけています'
       : judged === 'other' ? '今：音楽や歌などなので、外しています'
