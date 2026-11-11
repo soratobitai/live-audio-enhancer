@@ -29,17 +29,13 @@ const FLAT = GAINS_A.map(() => 0);
 // eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。keepEq なら手動の EQ は触らない。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
 const BASE = {
-  enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false, autoStrength: 'standard',
+  enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false,
 };
-// オートEQ の強さごとの補正の上限（±dB、extension/audio/auto-eq.js の STRENGTHS と同じ値）
-const AUTO_LIMITS = { standard: 9, strong: 12 };
 // 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
 const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
 const SCENARIOS = [
   // 手動の EQ をニュースにしてからオートEQ をオンにし、オフに戻したときにニュースに戻るかを確かめる
-  { ...BASE, name: 'オートEQ（標準）', autoEq: true, eqPreset: 'news', wait: 20000 },
-  // 強さを変えると、分析済みの結果からすぐに補正し直す。ゲインが追いつくまで少し待つ
-  { ...BASE, name: 'オートEQ（強め）', autoEq: true, autoStrength: 'strong', eqPreset: 'news', keepEq: true, wait: 4000 },
+  { ...BASE, name: 'オートEQ', autoEq: true, eqPreset: 'news', wait: 20000 },
   { ...BASE, name: 'オートEQ をオフに戻す（手動のニュースに戻る）', eqPreset: 'news', keepEq: true },
   { ...BASE, name: 'EQ 有効', gains: GAINS_A },
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
@@ -144,7 +140,7 @@ const INSTALL_PROBE = `(async () => {
         },
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
-        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
+        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET, limit: AutoEq.LIMIT } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -191,8 +187,8 @@ const INSTALL_PROBE = `(async () => {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains, eqPreset, keepEq }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains, eqPreset, keepEq) => {
+async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq) => {
     // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
     const enabledSwitch = document.getElementById('enabled');
     if (!enabledSwitch.checked) enabledSwitch.click();
@@ -216,7 +212,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStren
       }
     }
     setAuto(autoEq);
-    for (const [name, value] of [['engine', engine], ['levelerStrength', levelerStrength], ['autoStrength', autoStrength]]) {
+    for (const [name, value] of [['engine', engine], ['levelerStrength', levelerStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
@@ -225,7 +221,7 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStren
       if (sw.checked !== on) sw.click();
     }
     if (!enabled) enabledSwitch.click();
-  }, enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains ?? null, eqPreset ?? null, !!keepEq);
+  }, enabled, denoise, engine, leveler, levelerStrength, autoEq, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
 async function check(browser, extId, url) {
@@ -341,7 +337,7 @@ function judgeRun({ scenario, m, locked }) {
   const p = m.params;
   if (scenario.autoEq) {
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
-    const limit = AUTO_LIMITS[scenario.autoStrength];
+    const limit = p.auto.limit;
     if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
     // 補正量は毎秒計算し直され、フィルタのゲインはそれを時定数1秒で追いかける。
     // 分析を始めて間もないころに内容がよく変わると、補正量が1秒に2dB以上動くこともある（Twitch で 2.4dB）ので、3dB までの差は許す
@@ -404,7 +400,7 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    const eq = scenario.autoEq ? `オート（${scenario.autoStrength}）` : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
+    const eq = scenario.autoEq ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
     console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));

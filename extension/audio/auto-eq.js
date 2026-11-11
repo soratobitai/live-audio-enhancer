@@ -16,12 +16,10 @@ const AutoEq = (() => {
   const FLOOR_DB = -100; // これより小さいときは完全な無音とみなす
   const GATE_DB = 20; // ふだんの大きさよりこれだけ小さいときは、話の間などとみなす
   const ABSENT_DB = 24; // 目安より 24dB 以上小さい帯域は、もともと音が入っていないとみなして持ち上げない
-  // 強さ。amount は目安との差のうち補正する割合、limit は補正の上限（±dB）。
-  // 割合と上限の両方を段階的に変える（割合を同じにすると、差が上限を超える帯域がない限り、強さを変えても結果が同じになる）
-  const STRENGTHS = {
-    standard: { amount: 0.75, limit: 9 },
-    strong: { amount: 1, limit: 12 },
-  };
+  // 補正の強さ。目安との差をそのまま（100%）補正し、上限は ±12dB。
+  // 以前は強さを選べた（控えめ 50%・±6dB、標準 75%・±9dB）が、差が聞き分けにくく、強めで聞きやすくなったので強めに固定した
+  const AMOUNT = 1;
+  const LIMIT = 12;
   // 持ち上げる上限を、帯域ごとに limit の何倍にするか（下げる上限はどの帯域も limit）。
   // 声の配信で低い帯域や、圧縮で削られた高い帯域を持ち上げても、こもった響きや雑音が増えるだけなので、
   // 両端（31Hz・62Hz・16kHz）は下げるだけにし、125Hz・8kHz は半分にする
@@ -36,8 +34,7 @@ const AutoEq = (() => {
     ]);
   }
 
-  function correction(levels, strength) {
-    const { amount, limit } = STRENGTHS[strength];
+  function correction(levels) {
     const offset = MID.reduce((s, i) => s + levels[i] - TARGET[i], 0) / MID.length;
     const raw = levels.map((level, i) => {
       const want = TARGET[i] + offset;
@@ -48,7 +45,7 @@ const AutoEq = (() => {
     // ならしすぎると補正の山が削られて効きが小さくなるので、隣の重みは小さめにする
     const smooth = raw.map((x, i) => (raw[i - 1] ?? x) * 0.2 + x * 0.6 + (raw[i + 1] ?? x) * 0.2);
     return smooth.map((x, i) => {
-      const d = Math.min(limit * BOOST_SCALE[i], Math.max(-limit, x * amount));
+      const d = Math.min(LIMIT * BOOST_SCALE[i], Math.max(-LIMIT, x * AMOUNT));
       return Math.round(d * 10) / 10;
     });
   }
@@ -67,7 +64,6 @@ const AutoEq = (() => {
     let frames = 0; // ふだんの大きさに入れた回数
     let levels = null; // 帯域ごとの平均レベル（dB）
     let gains = Settings.BANDS.map(() => 0);
-    let strength = 'standard';
 
     const analyze = setInterval(() => {
       analyser.getFloatFrequencyData(spectrum);
@@ -93,22 +89,13 @@ const AutoEq = (() => {
     const update = setInterval(() => {
       if (seconds < MIN_SECONDS) return;
       levels = Array.from(power, (p) => 10 * Math.log10(p + 1e-30));
-      gains = correction(levels, strength);
+      gains = correction(levels);
       onUpdate(gains);
     }, UPDATE_MS);
 
     return {
       ready: () => seconds >= MIN_SECONDS,
       gains: () => gains,
-      // 強さを変える。分析が済んでいれば、すぐに補正し直す
-      setStrength(next) {
-        if (next === strength || !STRENGTHS[next]) return;
-        strength = next;
-        if (levels) {
-          gains = correction(levels, strength);
-          onUpdate(gains);
-        }
-      },
       // 目安の形の高さに合わせた、帯域ごとの平均レベル（検証と表示用）
       levels: () => levels,
       stop() {
@@ -119,5 +106,5 @@ const AutoEq = (() => {
     };
   }
 
-  return { TARGET, STRENGTHS, create };
+  return { TARGET, LIMIT, create };
 })();

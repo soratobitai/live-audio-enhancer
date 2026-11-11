@@ -3,7 +3,6 @@
 const enabledInput = document.getElementById('enabled');
 const presetSelect = document.getElementById('eqPreset');
 const eqModeInputs = document.querySelectorAll('input[name="eqMode"]');
-const autoStrengthInputs = document.querySelectorAll('input[name="autoStrength"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
@@ -112,8 +111,7 @@ function render(controls) {
     for (const input of [f.input, ...f.choices]) input.disabled = off;
   }
   for (const input of eqModeInputs) input.checked = input.value === (state.autoEq ? 'auto' : 'manual');
-  for (const input of autoStrengthInputs) input.checked = input.value === state.autoStrength;
-  for (const input of [...eqModeInputs, ...autoStrengthInputs]) input.disabled = off;
+  for (const input of eqModeInputs) input.disabled = off;
 
   // EQ はオートか手動のどちらか。オートのあいだは、手動の EQ（プリセット・フラットに戻す）は隠し、
   // スライダーは動かせないようにして、自動で決めた補正量を表示する。手動に戻すと、手動の EQ の値に戻る
@@ -161,12 +159,6 @@ function render(controls) {
     input.addEventListener('change', () => {
       state.autoEq = input.value === 'auto';
       render(controls);
-      Settings.save(state);
-    });
-  }
-  for (const input of autoStrengthInputs) {
-    input.addEventListener('change', () => {
-      state.autoStrength = input.value;
       Settings.save(state);
     });
   }

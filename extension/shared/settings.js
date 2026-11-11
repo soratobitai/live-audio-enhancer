@@ -23,7 +23,7 @@ const Settings = (() => {
   // ノイズキャンセルの方式。RNNoise は軽くて遅延が小さく、DeepFilterNet3 は抑え方が強いが重くて遅延が大きい
   const ENGINES = Object.freeze(['rnnoise', 'deepfilternet']);
 
-  // 強さ（標準 / 強め）。音量をそろえる（コンプレッサー）とオートEQ で共通
+  // 音量をそろえる（コンプレッサー）の強さ（標準 / 強め）
   const STRENGTHS = Object.freeze(['standard', 'strong']);
 
   // EQ のプリセット。ゲインは帯域の順（31Hz〜16kHz）で、聞いて調整する前提の初期値。
@@ -50,7 +50,7 @@ const Settings = (() => {
   function defaults() {
     return {
       enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
-      autoEq: false, autoStrength: 'standard', eqPreset: 'flat', gains: BANDS.map(() => 0),
+      autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0),
     };
   }
 
@@ -65,7 +65,7 @@ const Settings = (() => {
     const legacyAuto = v.eqPreset === 'auto';
     const presetOf = (g) => PRESETS.find((p) => p.gains.every((x, i) => x === g[i]))?.id ?? 'custom';
     // v0.13.0 までは、leveler に強さ（'off' / 'light' / 'medium' / 'strong'）を入れていた。
-    // オン・オフと強さに分け、弱と中は標準、強は強めにする。オートEQ の控えめも標準にする
+    // オン・オフと強さに分け、弱と中は標準、強は強めにする。v0.15.0 までのオートEQ の強さ（autoStrength）は読み捨てる
     const legacyLeveler = ['light', 'medium', 'strong'].includes(v.leveler) ? v.leveler : null;
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
@@ -75,7 +75,6 @@ const Settings = (() => {
       levelerStrength: STRENGTHS.includes(v.levelerStrength) ? v.levelerStrength
         : legacyLeveler === 'strong' ? 'strong' : d.levelerStrength,
       autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
-      autoStrength: STRENGTHS.includes(v.autoStrength) ? v.autoStrength : d.autoStrength,
       // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
       eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset
         : legacyAuto ? presetOf(gains)
