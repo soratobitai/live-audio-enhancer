@@ -42,7 +42,8 @@ npm run pack:firefox
 初回は、ストアに載せる内容を入力するので、ブラウザで行う。貼り付ける文章は `docs/amo/listing.md`、審査担当者へのメモは `docs/amo/reviewer-notes.md` にある。
 
 1. **Developer Hub を開く**
-   - https://addons.mozilla.org/developers/ を開き、ZOOM IMAGE for X(Twitter) を公開しているアカウントでログインする
+   - https://addons.mozilla.org/ja/developers/ を開き、ZOOM IMAGE for X(Twitter) を公開しているアカウントでログインする
+   - 日本語の画面で操作する。manifest に `default_locale` がないので、ストアの既定の言語は、提出したときの画面の言語になる（はず）
    - 2026-12-01 から配布契約（Distribution Agreement）が新しくなる。同意を求められたら、内容を確かめて同意する
 2. **新しいアドオンを提出する**
    - 「新しいアドオンを提出」（Submit a New Add-on）を押す
@@ -81,7 +82,8 @@ npm run pack:firefox
 2. 「ストアのページを編集」（Edit Product Page）を開く
 3. **アイコン**：`extension/icons/icon-128.png` をアップロードする
 4. **スクリーンショット**：`docs/amo/screenshots/1-overview.png` と `2-auto.png` をアップロードし、説明（Caption）を `docs/amo/listing.md` のとおりに入れる
-5. **英語の説明**：言語の切り替えで English を選び、名前・要約・説明を `docs/amo/listing.md` の英語の文章で入れる。英語の Firefox を使っている人には英語で表示される
+5. **既定の言語**：編集画面の「既定の言語」（Default Locale）が日本語になっているか確かめる。英語になっていたら日本語に変える（英語の文章を入れる前に確かめる。既定が英語のままだと、英語の文章で日本語の文章を上書きしてしまう）
+6. **英語の説明**：言語の切り替えで English を選び、名前・要約・説明を `docs/amo/listing.md` の英語の文章で入れる。英語の Firefox を使っている人には英語で表示される
 
 ## 5. 2 回目以降の版を出す
 

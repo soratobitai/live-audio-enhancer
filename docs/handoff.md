@@ -125,6 +125,7 @@ audio-fx/
 ├─ docs/
 │  ├─ handoff.md               このメモ
 │  ├─ publish-firefox.md       Firefox のストア（AMO）で公開する手順
+│  ├─ publish-firefox.pdf      上の手順のうち、提出から公開後までを見やすくした PDF（手順を直しても自動では更新されない）
 │  └─ amo/                     ストアに載せる文章、審査担当者へのメモ、スクリーンショット
 └─ dist/                       提出用のファイル（git には入れない）
 ```
