@@ -725,7 +725,7 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
   - DAMIKO の AI Noise Cancellation For Listeners（独自のSDK）
   - ClearSound（RNNoise）
   - DeepFilterNet を使った拡張は見つからなかった
-  - 「AIノイズ除去」をうたっていても、中身は普通のフィルタやゲートのものが多い（Audio Enhancer Pro、Hearably など）
+  - 「AIノイズ除去」をうたっていても、中身は普通のフィルタやゲートのものが多い
 - **オートEQ**：番組の音に合わせて補正する拡張は見つからなかった
 - **ニコ生向け**：音声エフェクトの拡張は見つからなかった
   - ニコ生専用ツールの NicoViewer は、この拡張と同じく`createMediaElementSource`でニコ生の動画をつないでいる
