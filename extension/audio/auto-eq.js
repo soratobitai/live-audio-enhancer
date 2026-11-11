@@ -15,7 +15,6 @@ const AutoEq = (() => {
   // 強さ。amount は目安との差のうち補正する割合、limit は補正の上限（±dB）。
   // 割合と上限の両方を段階的に変える（割合を同じにすると、差が上限を超える帯域がない限り、強さを変えても結果が同じになる）
   const STRENGTHS = {
-    gentle: { amount: 0.5, limit: 6 },
     standard: { amount: 0.75, limit: 9 },
     strong: { amount: 1, limit: 12 },
   };

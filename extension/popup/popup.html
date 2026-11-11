@@ -13,7 +13,7 @@
       <input type="checkbox" role="switch" id="enabled">
     </label>
   </header>
-  <section class="denoise">
+  <section class="feature denoise">
     <label class="switch option">
       <span>
         ノイズキャンセル
@@ -21,27 +21,28 @@
       </span>
       <input type="checkbox" role="switch" id="denoise">
     </label>
-    <div class="choices engines" role="radiogroup" aria-label="ノイズキャンセルの方式">
+    <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
       <label>
         <input type="radio" name="engine" value="rnnoise">
-        <span>RNNoise<small>軽い・遅延 約13ms</small></span>
+        <span>標準<small>RNNoise</small></span>
       </label>
       <label>
         <input type="radio" name="engine" value="deepfilternet">
-        <span>DeepFilterNet3<small>強力・遅延 約71ms</small></span>
+        <span>強め<small>DeepFilterNet3</small></span>
       </label>
     </div>
   </section>
-  <section class="leveler">
-    <div class="title">
-      音量をそろえる
-      <small>大きい音を抑え、小さい音を持ち上げます</small>
-    </div>
-    <div class="choices levels" role="radiogroup" aria-label="音量をそろえる強さ">
-      <label><input type="radio" name="leveler" value="off"><span>オフ</span></label>
-      <label><input type="radio" name="leveler" value="light"><span>弱</span></label>
-      <label><input type="radio" name="leveler" value="medium"><span>中</span></label>
-      <label><input type="radio" name="leveler" value="strong"><span>強</span></label>
+  <section class="feature leveler">
+    <label class="switch option">
+      <span>
+        音量をそろえる
+        <small>大きい音を抑え、小さい音を持ち上げます</small>
+      </span>
+      <input type="checkbox" role="switch" id="leveler">
+    </label>
+    <div class="choices" role="radiogroup" aria-label="音量をそろえる強さ">
+      <label><input type="radio" name="levelerStrength" value="standard"><span>標準</span></label>
+      <label><input type="radio" name="levelerStrength" value="strong"><span>強め</span></label>
     </div>
   </section>
   <section class="eq">
@@ -49,17 +50,18 @@
       <span>イコライザー</span>
       <select id="eqPreset" aria-label="イコライザーのプリセット"></select>
     </div>
-    <label class="switch option auto-switch">
-      <span>
-        オート（試作）
-        <small class="auto-note"></small>
-      </span>
-      <input type="checkbox" role="switch" id="autoEq">
-    </label>
-    <div class="choices strengths" role="radiogroup" aria-label="オートEQの強さ" hidden>
-      <label><input type="radio" name="autoStrength" value="gentle"><span>控えめ</span></label>
-      <label><input type="radio" name="autoStrength" value="standard"><span>標準</span></label>
-      <label><input type="radio" name="autoStrength" value="strong"><span>強め</span></label>
+    <div class="feature auto">
+      <label class="switch option">
+        <span>
+          オート（試作）
+          <small class="auto-note"></small>
+        </span>
+        <input type="checkbox" role="switch" id="autoEq">
+      </label>
+      <div class="choices" role="radiogroup" aria-label="オートEQの強さ">
+        <label><input type="radio" name="autoStrength" value="standard"><span>標準</span></label>
+        <label><input type="radio" name="autoStrength" value="strong"><span>強め</span></label>
+      </div>
     </div>
     <div id="bands"></div>
   </section>

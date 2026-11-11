@@ -98,7 +98,6 @@ h1 {
 }
 
 .option small,
-.title small,
 .choices small {
   display: block;
   color: var(--muted);
@@ -125,7 +124,7 @@ body:not(.off) select:disabled {
   opacity: 0.5;
 }
 
-.auto-switch {
+.auto {
   padding-top: 6px;
 }
 
@@ -137,28 +136,10 @@ body:not(.off) .band input:disabled {
 /* ラジオボタンを並べた選択肢。ラジオボタン自体は隠し、枠で選択中を示す */
 .choices {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
   margin-top: 6px;
-}
-
-.engines {
-  grid-template-columns: 1fr 1fr;
-}
-
-.levels {
-  grid-template-columns: repeat(4, 1fr);
   text-align: center;
-}
-
-.strengths {
-  grid-template-columns: repeat(3, 1fr);
-  text-align: center;
-  margin-bottom: 2px;
-}
-
-/* display: grid が hidden 属性より優先されるので、隠すときは明示する */
-.choices[hidden] {
-  display: none;
 }
 
 .choices label {
@@ -188,8 +169,8 @@ body:not(.off) .band input:disabled {
   outline-offset: 2px;
 }
 
-/* ノイズキャンセルがオフのときは方式を薄く表示する（選ぶことはできる） */
-.denoise:not(.on) .engines {
+/* 機能がオフのときは強さの選択肢を薄く表示する（選ぶことはできる） */
+.feature:not(.on) .choices {
   opacity: 0.55;
 }
 

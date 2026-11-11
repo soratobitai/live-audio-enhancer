@@ -48,10 +48,9 @@ const AudioGraph = (() => {
   // 音量をそろえる（コンプレッサー）の強さごとの設定。
   // DynamicsCompressorNode は圧縮した分に応じて自動で持ち上げる（メイクアップゲイン）ので、大きい音は抑えられ、
   // 小さい音は大きくなる。1kHz の正弦波で測ると、入力 -50dB / -3dB に対して出力は
-  // 弱 -44.7 / -6.3、中 -38.2 / -10.5、強 -31.2 / -15.3 dB で、どの強さでも 0dBFS は超えなかった
+  // 標準 -38.2 / -10.5、強め -31.2 / -15.3 dB で、どちらも 0dBFS は超えなかった
   const LEVELERS = {
-    light: { threshold: -24, knee: 12, ratio: 2, attack: 0.01, release: 0.25 },
-    medium: { threshold: -32, knee: 12, ratio: 4, attack: 0.005, release: 0.25 },
+    standard: { threshold: -32, knee: 12, ratio: 4, attack: 0.005, release: 0.25 },
     strong: { threshold: -40, knee: 10, ratio: 8, attack: 0.003, release: 0.25 },
   };
   // 音割れ防止のリミッター。DynamicsCompressorNode をリミッターとして使う。
@@ -321,7 +320,7 @@ const AudioGraph = (() => {
     applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
-    const leveler = LEVELERS[settings.leveler];
+    const leveler = settings.leveler ? LEVELERS[settings.levelerStrength] : null;
     if (leveler) {
       for (const [key, value] of Object.entries(leveler)) set(g.compressor[key], value);
     }

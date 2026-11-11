@@ -23,8 +23,8 @@ const Settings = (() => {
   // ノイズキャンセルの方式。RNNoise は軽くて遅延が小さく、DeepFilterNet3 は抑え方が強いが重くて遅延が大きい
   const ENGINES = Object.freeze(['rnnoise', 'deepfilternet']);
 
-  // 音量をそろえる（コンプレッサー）の強さ
-  const LEVELERS = Object.freeze(['off', 'light', 'medium', 'strong']);
+  // 強さ（標準 / 強め）。音量をそろえる（コンプレッサー）とオートEQ で共通
+  const STRENGTHS = Object.freeze(['standard', 'strong']);
 
   // EQ のプリセット。ゲインは帯域の順（31Hz〜16kHz）で、聞いて調整する前提の初期値。
   // プリセットを選ぶとその値が gains に入り、スライダーを動かすと 'custom' になる
@@ -44,14 +44,12 @@ const Settings = (() => {
   ]);
   // EQ の選択。custom（手動）またはプリセットの id。オートEQ はこれとは別に autoEq でオン・オフする
   const EQ_MODES = Object.freeze(['custom', ...PRESETS.map((p) => p.id)]);
-  // オートEQ の強さ（控えめ / 標準 / 強め）
-  const AUTO_STRENGTHS = Object.freeze(['gentle', 'standard', 'strong']);
 
   // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする。
   // オートEQ がオンのあいだは、eqPreset と gains（手動の EQ）は使わずに残しておき、オフに戻すとそれを使う
   function defaults() {
     return {
-      enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off',
+      enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
       autoEq: false, autoStrength: 'standard', eqPreset: 'flat', gains: BANDS.map(() => 0),
     };
   }
@@ -66,13 +64,18 @@ const Settings = (() => {
     // 以前はオートEQ を eqPreset の 'auto' で表していた。オートEQ をオンにし、EQ はゲインと同じプリセットか、カスタムにする
     const legacyAuto = v.eqPreset === 'auto';
     const presetOf = (g) => PRESETS.find((p) => p.gains.every((x, i) => x === g[i]))?.id ?? 'custom';
+    // v0.13.0 までは、leveler に強さ（'off' / 'light' / 'medium' / 'strong'）を入れていた。
+    // オン・オフと強さに分け、弱と中は標準、強は強めにする。オートEQ の控えめも標準にする
+    const legacyLeveler = ['light', 'medium', 'strong'].includes(v.leveler) ? v.leveler : null;
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
       engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
-      leveler: LEVELERS.includes(v.leveler) ? v.leveler : d.leveler,
+      leveler: typeof v.leveler === 'boolean' ? v.leveler : legacyLeveler !== null,
+      levelerStrength: STRENGTHS.includes(v.levelerStrength) ? v.levelerStrength
+        : legacyLeveler === 'strong' ? 'strong' : d.levelerStrength,
       autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
-      autoStrength: AUTO_STRENGTHS.includes(v.autoStrength) ? v.autoStrength : d.autoStrength,
+      autoStrength: STRENGTHS.includes(v.autoStrength) ? v.autoStrength : d.autoStrength,
       // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
       eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset
         : legacyAuto ? presetOf(gains)
@@ -96,5 +99,5 @@ const Settings = (() => {
     });
   }
 
-  return { BANDS, GAIN_RANGE, ENGINES, LEVELERS, PRESETS, EQ_MODES, AUTO_STRENGTHS, defaults, load, save, onChange };
+  return { BANDS, GAIN_RANGE, ENGINES, STRENGTHS, PRESETS, EQ_MODES, defaults, load, save, onChange };
 })();

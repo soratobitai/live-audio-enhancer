@@ -28,9 +28,13 @@ const FLAT = GAINS_A.map(() => 0);
 // ポップアップで順に設定し、それぞれ測定する。
 // eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。keepEq なら手動の EQ は触らない。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
-const BASE = { enabled: true, denoise: false, engine: 'rnnoise', leveler: 'off', autoEq: false, autoStrength: 'standard' };
+const BASE = {
+  enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false, autoStrength: 'standard',
+};
 // オートEQ の強さごとの補正の上限（±dB、extension/audio/auto-eq.js の STRENGTHS と同じ値）
-const AUTO_LIMITS = { gentle: 6, standard: 9, strong: 12 };
+const AUTO_LIMITS = { standard: 9, strong: 12 };
+// 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
+const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
 const SCENARIOS = [
   // 手動の EQ をニュースにしてからオートEQ をオンにし、オフに戻したときにニュースに戻るかを確かめる
   { ...BASE, name: 'オートEQ（標準）', autoEq: true, eqPreset: 'news', wait: 20000 },
@@ -43,7 +47,8 @@ const SCENARIOS = [
   { ...BASE, name: 'プリセット（ニュース）', eqPreset: 'news' },
   // 低音を大きく持ち上げても、リミッターで 0dBFS を超えないこと
   { ...BASE, name: 'プリセット（低音強調）', eqPreset: 'bass' },
-  { ...BASE, name: '音量をそろえる（強）', leveler: 'strong', gains: FLAT },
+  { ...BASE, name: '音量をそろえる（標準）', leveler: true, gains: FLAT },
+  { ...BASE, name: '音量をそろえる（強め）', leveler: true, levelerStrength: 'strong', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
@@ -143,8 +148,8 @@ const INSTALL_PROBE = `(async () => {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq }) {
-  await popup.evaluate((enabled, denoise, engine, leveler, autoEq, autoStrength, gains, eqPreset, keepEq) => {
+async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains, eqPreset, keepEq }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains, eqPreset, keepEq) => {
     // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
     const enabledSwitch = document.getElementById('enabled');
     if (!enabledSwitch.checked) enabledSwitch.click();
@@ -165,14 +170,16 @@ async function setPopup(popup, { enabled, denoise, engine, leveler, autoEq, auto
       }
     }
     if (autoSwitch.checked !== autoEq) autoSwitch.click();
-    for (const [name, value] of [['engine', engine], ['leveler', leveler], ['autoStrength', autoStrength]]) {
+    for (const [name, value] of [['engine', engine], ['levelerStrength', levelerStrength], ['autoStrength', autoStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
-    const denoiseSwitch = document.getElementById('denoise');
-    if (denoiseSwitch.checked !== denoise) denoiseSwitch.click();
+    for (const [id, on] of [['denoise', denoise], ['leveler', leveler]]) {
+      const sw = document.getElementById(id);
+      if (sw.checked !== on) sw.click();
+    }
     if (!enabled) enabledSwitch.click();
-  }, enabled, denoise, engine, leveler, autoEq, autoStrength, gains ?? null, eqPreset ?? null, !!keepEq);
+  }, enabled, denoise, engine, leveler, levelerStrength, autoEq, autoStrength, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
 async function check(browser, extId, url) {
@@ -300,9 +307,11 @@ function judgeRun({ scenario, m, locked }) {
     if (!near(e.wet, scenario.denoise && name === scenario.engine ? 1 : 0, 0.01)) return { ok: false, reason: `${name} の wet が設定と違う` };
   }
   if (!near(p.nrDry, scenario.denoise ? 0 : 1, 0.01)) return { ok: false, reason: 'nrDry のゲインが設定と違う' };
-  const compressing = scenario.leveler !== 'off';
-  if (!near(p.comp.wet, compressing ? 1 : 0, 0.01) || !near(p.comp.dry, compressing ? 0 : 1, 0.01)) {
+  if (!near(p.comp.wet, scenario.leveler ? 1 : 0, 0.01) || !near(p.comp.dry, scenario.leveler ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'compWet / compDry のゲインが設定と違う' };
+  }
+  if (scenario.leveler && !near(p.comp.threshold, LEVELER_THRESHOLDS[scenario.levelerStrength], 0.01)) {
+    return { ok: false, reason: '音量をそろえるの強さが設定と違う' };
   }
   const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
   if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
@@ -333,7 +342,7 @@ function report(r, j) {
     const rj = j.results[i];
     const p = m.params;
     const eq = scenario.autoEq ? `オート（${scenario.autoStrength}）` : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler} / EQ ${eq}`);
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));
     console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);

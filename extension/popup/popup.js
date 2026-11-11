@@ -1,14 +1,7 @@
 'use strict';
 
 const enabledInput = document.getElementById('enabled');
-const denoiseInput = document.getElementById('denoise');
-const denoiseSection = document.querySelector('.denoise');
-const engineInputs = document.querySelectorAll('input[name="engine"]');
-const levelerInputs = document.querySelectorAll('input[name="leveler"]');
 const presetSelect = document.getElementById('eqPreset');
-const autoEqInput = document.getElementById('autoEq');
-const autoStrengths = document.querySelector('.strengths');
-const autoStrengthInputs = document.querySelectorAll('input[name="autoStrength"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
@@ -17,6 +10,18 @@ const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 const AUTO_DESCRIPTION = '番組の音に合わせて、EQ を自動で調整します';
+
+// オン・オフのスイッチと、強さ（標準 / 強め）の選択肢を持つ機能。key はスイッチの設定、choice は選択肢の設定
+const FEATURES = [
+  { key: 'denoise', choice: 'engine', section: '.denoise' },
+  { key: 'leveler', choice: 'levelerStrength', section: '.leveler' },
+  { key: 'autoEq', choice: 'autoStrength', section: '.auto' },
+].map((f) => ({
+  ...f,
+  input: document.getElementById(f.key),
+  choices: document.querySelectorAll(`input[name="${f.choice}"]`),
+  section: document.querySelector(f.section),
+}));
 
 let state;
 let autoTimer = null;
@@ -97,23 +102,20 @@ async function showAutoEq(controls) {
 
 function render(controls) {
   enabledInput.checked = state.enabled;
-  denoiseInput.checked = state.denoise;
-  denoiseSection.classList.toggle('on', state.denoise);
-  for (const input of engineInputs) input.checked = input.value === state.engine;
-  for (const input of levelerInputs) input.checked = input.value === state.leveler;
-  for (const input of autoStrengthInputs) input.checked = input.value === state.autoStrength;
   document.body.classList.toggle('off', !state.enabled);
   presetSelect.value = state.eqPreset;
-  autoEqInput.checked = state.autoEq;
-
   // 全体を無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
   const off = !state.enabled;
-  for (const input of [denoiseInput, autoEqInput, ...engineInputs, ...levelerInputs, ...autoStrengthInputs]) input.disabled = off;
+  for (const f of FEATURES) {
+    f.input.checked = state[f.key];
+    f.section.classList.toggle('on', state[f.key]);
+    for (const input of f.choices) input.checked = input.value === state[f.choice];
+    for (const input of [f.input, ...f.choices]) input.disabled = off;
+  }
 
   // オートEQ のあいだは、手動の EQ（プリセット・スライダー・フラットに戻す）は操作できない。
   // スライダーには自動で決めた補正量を表示する。オフに戻すと、手動の EQ の値に戻る
   const auto = state.autoEq;
-  autoStrengths.hidden = !auto;
   presetSelect.disabled = off || auto;
   resetButton.disabled = off || auto;
   for (const { input } of controls) input.disabled = off || auto;
@@ -140,21 +142,15 @@ function render(controls) {
     render(controls);
     Settings.save(state);
   });
-  denoiseInput.addEventListener('change', () => {
-    state.denoise = denoiseInput.checked;
-    render(controls);
-    Settings.save(state);
-  });
-  autoEqInput.addEventListener('change', () => {
-    state.autoEq = autoEqInput.checked;
-    render(controls);
-    Settings.save(state);
-  });
-  // ラジオボタンの選択肢（ノイズキャンセルの方式、音量をそろえる強さ、オートEQ の強さ）
-  for (const [inputs, key] of [[engineInputs, 'engine'], [levelerInputs, 'leveler'], [autoStrengthInputs, 'autoStrength']]) {
-    for (const input of inputs) {
+  for (const f of FEATURES) {
+    f.input.addEventListener('change', () => {
+      state[f.key] = f.input.checked;
+      render(controls);
+      Settings.save(state);
+    });
+    for (const input of f.choices) {
       input.addEventListener('change', () => {
-        state[key] = input.value;
+        state[f.choice] = input.value;
         Settings.save(state);
       });
     }
