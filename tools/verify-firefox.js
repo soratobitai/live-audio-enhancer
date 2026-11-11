@@ -3,7 +3,8 @@
 // 拡張のコピーを一時的なアドオンとして読み込んで、配信を再生する。
 //
 // Firefox では、タブのミュートや動画の音量が Web Audio に入る手前でかかるので、ミュートせず動画の音量を 0.01 にして測る
-// （スピーカーからはほぼ聞こえない）。そのため、小さい音を分析に入れないオートEQ は、ここでは確かめない。
+// （スピーカーからはほぼ聞こえない）。拡張の中ではプレイヤーの音量を打ち消すので、処理は音量 100% と同じ大きさで行われる。
+// オートEQ・音量をそろえる・全体の無効は、Chrome の検証（tools/verify.js）で確かめていて、ここではまだ確かめていない。
 //
 // 使い方:
 //   npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema>   サイトのページから配信を選んで試す
@@ -58,12 +59,14 @@ const near = (x, y, eps) => Math.abs(x - y) <= eps;
 
 // 測定の途中で動画が止まった・戻った、または入口が無音なら、判定できない
 function unmeasurable(m) {
+  if (m.error || m.attached === false) return null; // 測定自体の失敗は、判定できないのではなく NG にする（judge で扱う）
   if (m.interrupted) return '測っている途中で動画が止まった、または最初に戻った';
   if (!(m.peakIn > 0)) return '入口が無音';
   return null;
 }
 
 function judgeEq(m) {
+  if (m.error || m.attached === false) return { ng: m.error ?? '接続されていない' };
   const skip = unmeasurable(m);
   if (skip) return { skip };
   if (!GAINS.every((g, i) => near(m.gains[i], g, 0.05))) return { ng: 'フィルタのゲインが設定と違う' };
@@ -74,6 +77,7 @@ function judgeEq(m) {
 }
 
 function judgeEngine(m, name) {
+  if (m.error || m.attached === false) return { ng: m.error ?? '接続されていない' };
   const engine = m.engines[name];
   if (!engine?.ready) return { ng: `${name} のノードを作れなかった` };
   if (!near(engine.wet, 1, 0.01) || !near(m.nrDry, 0, 0.01)) return { ng: `${name} に切り替わっていない` };
@@ -123,7 +127,8 @@ async function check(browser, url) {
 
     const results = [];
     const attach = await probe(page, 'attach');
-    results.push(['接続', attach, attach.attached && attach.ctxState === 'running' ? { ok: true } : { ng: '接続されていない' }]);
+    results.push(['接続', attach, !attach.autoConnected ? { ng: '再生が始まっても、拡張が自動で接続しなかった' }
+      : attach.attached && attach.ctxState === 'running' ? { ok: true } : { ng: '接続されていない' }]);
     if (!attach.attached) return { url, title, results };
 
     const eq = await probe(page, 'measure', { settings: { eqPreset: 'custom', gains: GAINS } });

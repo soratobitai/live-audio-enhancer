@@ -22,13 +22,14 @@
       <input type="checkbox" role="switch" id="denoise">
     </label>
     <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
-      <label>
+      <!-- 方式の名前と注意点は、画面には出さず、マウスを乗せたときに出す -->
+      <label title="RNNoise。軽く、音の遅れも小さい">
         <input type="radio" name="engine" value="rnnoise">
-        <span>標準<small>RNNoise</small></span>
+        <span>標準</span>
       </label>
-      <label>
+      <label title="DeepFilterNet3。雑音を強く抑えるが、負荷が高く、音が少し遅れる">
         <input type="radio" name="engine" value="deepfilternet">
-        <span>強め<small>DeepFilterNet3</small></span>
+        <span>強め</span>
       </label>
     </div>
   </section>

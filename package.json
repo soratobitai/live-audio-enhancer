@@ -10,7 +10,8 @@
     "verify:tver": "node tools/verify.js tver",
     "verify:abema": "node tools/verify.js abema",
     "verify:firefox": "node tools/verify-firefox.js",
-    "vendor": "node tools/vendor.js"
+    "vendor": "node tools/vendor.js",
+    "icons": "node tools/icons.js"
   },
   "devDependencies": {
     "@sapphi-red/web-noise-suppressor": "0.4.1",

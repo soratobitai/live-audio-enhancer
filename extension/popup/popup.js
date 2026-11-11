@@ -23,6 +23,10 @@ const FEATURES = [
 
 let state;
 let autoTimer = null;
+let autoShown = null; // 今オートの表示をしているか（オートと手動を切り替えたときだけ、表示を切り替えるため）
+let autoGeneration = 0; // オートの表示を始めるたびに増やす。手動に切り替えたあとに届いた返事を捨てるため
+let autoReplied = 0; // 表示に使った返事の番号。順番が入れ替わって届いた古い返事を捨てるため
+let autoAsked = 0;
 
 // 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
@@ -81,9 +85,15 @@ function showGains(controls, gains) {
 
 // オートEQ の補正量を、表示しているタブの content script に問い合わせて表示する
 async function showAutoEq(controls) {
+  const generation = autoGeneration;
+  const asked = ++autoAsked;
+  // 問い合わせのあいだに手動に切り替えられたり、あとの問い合わせの返事が先に届いていたりしたら、表示しない
+  const stale = () => generation !== autoGeneration || asked < autoReplied;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const status = await chrome.tabs.sendMessage(tab.id, { type: 'audio-fx:status' });
+    if (stale()) return;
+    autoReplied = asked;
     if (!status?.connected) {
       autoNote.textContent = 'このタブでは、まだ動画につないでいません';
     } else if (!status.autoEq?.ready) {
@@ -94,6 +104,7 @@ async function showAutoEq(controls) {
     if (status?.autoEq) showGains(controls, status.autoEq.gains);
   } catch {
     // 対応サイト以外のタブなど、content script がない
+    if (stale()) return;
     autoNote.textContent = 'このタブでは使えません';
   }
 }
@@ -119,16 +130,25 @@ function render(controls) {
   document.body.classList.toggle('auto', auto);
   presetSelect.disabled = off || auto;
   resetButton.disabled = off || auto;
-  for (const { input } of controls) input.disabled = off || auto;
-  clearInterval(autoTimer);
-  autoTimer = null;
-  if (auto) {
-    showGains(controls, Settings.BANDS.map(() => 0));
-    showAutoEq(controls);
-    autoTimer = setInterval(() => showAutoEq(controls), 1000);
-  } else {
-    showGains(controls, state.gains);
+  for (const { input } of controls) {
+    input.disabled = off || auto;
+    // オートの補正量は 0.1dB 刻みなので、スライダーのつまみも同じ刻みで表示する（手動では 0.5dB 刻みで動かす）
+    input.step = auto ? 0.1 : 0.5;
   }
+  // オートと手動を切り替えたときだけ、表示と問い合わせを切り替える。
+  // ほかの設定を変えるたびに 0 に戻すと、次の返事が届くまでスライダーがちらつく
+  if (auto !== autoShown) {
+    autoShown = auto;
+    autoGeneration += 1;
+    clearInterval(autoTimer);
+    autoTimer = null;
+    if (auto) {
+      showGains(controls, Settings.BANDS.map(() => 0));
+      showAutoEq(controls);
+      autoTimer = setInterval(() => showAutoEq(controls), 1000);
+    }
+  }
+  if (!auto) showGains(controls, state.gains);
 }
 
 (async () => {

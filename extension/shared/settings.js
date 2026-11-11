@@ -67,6 +67,14 @@ const Settings = (() => {
     // v0.13.0 までは、leveler に強さ（'off' / 'light' / 'medium' / 'strong'）を入れていた。
     // オン・オフと強さに分け、弱と中は標準、強は強めにする。v0.15.0 までのオートEQ の強さ（autoStrength）は読み捨てる
     const legacyLeveler = ['light', 'medium', 'strong'].includes(v.leveler) ? v.leveler : null;
+    // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
+    const eqPreset = EQ_MODES.includes(v.eqPreset) ? v.eqPreset
+      : legacyAuto ? presetOf(gains)
+      : gains === v.gains ? 'custom' : d.eqPreset;
+    // プリセットを選んでいるときは、ゲインをそのプリセットの値にする。
+    // スライダーを動かすとカスタムになるので、プリセットの値と違うのは、プリセットの値を変えた（v0.9.0 で低音強調・
+    // 高音強調・小音量・夜間を強めた）あとや、帯域の数が変わってゲインをフラットに戻したとき。表示と音をそろえる
+    const preset = PRESETS.find((p) => p.id === eqPreset);
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
@@ -75,11 +83,8 @@ const Settings = (() => {
       levelerStrength: STRENGTHS.includes(v.levelerStrength) ? v.levelerStrength
         : legacyLeveler === 'strong' ? 'strong' : d.levelerStrength,
       autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
-      // eqPreset がない以前の設定は、ゲインを使えたなら手動で調整したものとみなし、フラットに戻したならフラットにする
-      eqPreset: EQ_MODES.includes(v.eqPreset) ? v.eqPreset
-        : legacyAuto ? presetOf(gains)
-        : gains === v.gains ? 'custom' : d.eqPreset,
-      gains: gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
+      eqPreset,
+      gains: preset ? [...preset.gains] : gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
     };
   }
 

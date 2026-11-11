@@ -14,8 +14,17 @@ const round1 = (x) => Math.round(x * 10) / 10;
 const PROBE_COMMANDS = {
   async attach() {
     const v = probePick();
+    // ここで AudioGraph.attach を呼ぶと、拡張の「再生が始まったら接続する」処理が壊れていても接続してしまうので、
+    // その前に、拡張が自分で接続したかを記録する
+    // （接続は AudioContext が動き出してから行うので、最長10秒待つ）
+    let autoConnected = AudioGraph.status().connected;
+    for (let i = 0; i < 20 && !autoConnected; i++) {
+      await probeSleep(500);
+      autoConnected = AudioGraph.status().connected;
+    }
     const g = await AudioGraph.attach(v);
     return {
+      autoConnected,
       attached: !!g, src: v.currentSrc.slice(0, 60), srcObject: v.srcObject ? String(v.srcObject) : null,
       ctxState: g?.source.context.state, sampleRate: g?.source.context.sampleRate,
     };

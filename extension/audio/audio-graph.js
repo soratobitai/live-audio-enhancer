@@ -221,7 +221,11 @@ const AudioGraph = (() => {
     g.engines[name] = engine;
     const created = await ENGINES[name].create(c, g.source);
     if (!created) return;
+    // 準備中に止められた場合と、止める予約のタイマーの両方から呼ばれることがあるので、2回目は何もしない
+    let stopped = false;
     engine.stop = () => {
+      if (stopped) return;
+      stopped = true;
       g.source.disconnect(created.node);
       created.stop();
     };
@@ -242,7 +246,9 @@ const AudioGraph = (() => {
   function stopEngine(g, name) {
     const engine = g.engines[name];
     delete g.engines[name];
-    engine.wet.gain.setTargetAtTime(0, g.source.context.currentTime, RAMP);
+    const now = g.source.context.currentTime;
+    engine.wet.gain.cancelScheduledValues(now);
+    engine.wet.gain.setTargetAtTime(0, now, RAMP);
     setTimeout(() => {
       engine.wet.disconnect();
       engine.stop?.();
@@ -292,13 +298,15 @@ const AudioGraph = (() => {
   }
 
   // プレイヤーの音量を、source で打ち消し、volume でかけ直す。
-  // プレイヤーの音量 v がかかった音に 1/v をかけて処理し、最後に v をかけるので、耳に届く大きさは変わらない
-  function followVolume(g, video, ramp) {
+  // プレイヤーの音量 v がかかった音に 1/v をかけて処理し、最後に v をかけるので、耳に届く大きさは変わらない。
+  // プレイヤーの音量は瞬時に変わるので、こちらも瞬時に変える。2つをゆっくり逆向きに変えると、途中で積が 1 を超え、
+  // 音量を 0.1 から 1 にした瞬間に約 +9dB 大きくなっていた
+  function followVolume(g, video) {
     const v = Math.max(video.volume, MIN_VOLUME);
-    const c = g.source.context;
+    const now = g.source.context.currentTime;
     for (const [param, value] of [[g.source.gain, 1 / v], [g.volume.gain, v]]) {
-      if (ramp) param.setTargetAtTime(value, c.currentTime, RAMP);
-      else param.value = value;
+      param.cancelScheduledValues(now);
+      param.setValueAtTime(value, now);
     }
   }
 
@@ -327,12 +335,21 @@ const AudioGraph = (() => {
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
   function apply(g, ramp) {
     const now = g.source.context.currentTime;
+    // 先に予約した変化が残っていると、あとから上書きされてしまうので取り消してから設定する。
+    // 例：ノイズキャンセルの準備ができると、0.15 秒後に nrDry を 0 にする予約を入れる。その前にオフにされたとき、
+    // 予約を取り消さないと nrDry が 0 のまま残り、次に設定を変えるまで無音になっていた
     const set = (param, v, from = now) => {
-      if (ramp) param.setTargetAtTime(v, Math.max(now, from), RAMP);
-      else param.value = v;
+      if (ramp) {
+        param.cancelScheduledValues(now);
+        param.setTargetAtTime(v, Math.max(now, from), RAMP);
+      } else {
+        param.value = v;
+      }
     };
-    // 使うノイズキャンセル。準備中や作れなかったときは null で、nrDry 側（素通し）にする
-    const active = settings.denoise ? g.engines[settings.engine] : undefined;
+    // 使うノイズキャンセル。準備中や作れなかったときは null で、nrDry 側（素通し）にする。
+    // 全体を無効にしているあいだは音に使わないので、CPU を使わないように止める（有効に戻すと作り直す。0.2〜0.4 秒）
+    const denoise = settings.enabled && settings.denoise;
+    const active = denoise ? g.engines[settings.engine] : undefined;
     const using = active?.node ? active : null;
     applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
@@ -346,17 +363,17 @@ const AudioGraph = (() => {
     set(g.wet.gain, settings.enabled ? 1 : 0);
     set(g.dry.gain, settings.enabled ? 0 : 1);
     for (const name of Object.keys(g.engines)) {
-      if (!(settings.denoise && name === settings.engine)) stopEngine(g, name);
+      if (!(denoise && name === settings.engine)) stopEngine(g, name);
     }
-    if (settings.denoise) ensureEngine(g, settings.engine);
+    if (denoise) ensureEngine(g, settings.engine);
   }
 
   async function connect(video) {
     const c = await whenRunning();
     try {
       const g = build(c, c.createMediaElementSource(video));
-      followVolume(g, video, false);
-      video.addEventListener('volumechange', () => followVolume(g, video, true));
+      followVolume(g, video);
+      video.addEventListener('volumechange', () => followVolume(g, video));
       apply(g, false);
       live.add(g);
       latest = g;

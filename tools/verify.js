@@ -33,6 +33,10 @@ const BASE = {
 };
 // 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
 const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
+// オートEQ の補正の上限（extension/audio/auto-eq.js と同じ値）。帯域ごとの持ち上げる上限は、
+// 31Hz・62Hz・16kHz は持ち上げない、125Hz・8kHz は半分（BOOST_SCALE と同じ）
+const AUTO_LIMIT = 12;
+const AUTO_BOOST_LIMITS = [0, 0, 6, 12, 12, 12, 12, 12, 6, 0];
 const SCENARIOS = [
   // 手動の EQ をニュースにしてからオートEQ をオンにし、オフに戻したときにニュースに戻るかを確かめる
   { ...BASE, name: 'オートEQ', autoEq: true, eqPreset: 'news', wait: 20000 },
@@ -46,7 +50,7 @@ const SCENARIOS = [
   { ...BASE, name: '音量をそろえる（標準）', leveler: true, gains: FLAT },
   { ...BASE, name: '音量をそろえる（強め）', leveler: true, levelerStrength: 'strong', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
-  { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT },
+  { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT, wait: 5000 },
   { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
   { ...BASE, name: 'すべて無効に戻す（EQ だけ有効）', engine: 'deepfilternet', gains: GAINS_A },
 ];
@@ -60,9 +64,11 @@ const INSTALL_PROBE = `(async () => {
   if (!g) return false;
   const ctx = g.source.context;
   const mk = () => { const a = ctx.createAnalyser(); a.fftSize = 8192; a.smoothingTimeConstant = 0; return a; };
-  const pre = mk(), post = mk();
+  const pre = mk(), post = mk(), elem = mk();
   g.source.connect(pre);
   g.output.connect(post);
+  // 動画から来る音（プレイヤーの音量を打ち消す前）。入口の無音が、動画のせいか拡張のせいかを見分けるため
+  g.element.connect(elem);
   // 音割れは、プレイヤーの音量をかけ直した後の、実際に出ていく音で判定する。
   // 拡張の中では音量を打ち消して処理するので、元の音が 0dBFS をわずかに超える配信では、素通しのとき output で 1 を超えることがある
   const fin = mk();
@@ -91,44 +97,56 @@ const INSTALL_PROBE = `(async () => {
 
     const a = new Float32Array(pre.frequencyBinCount), b = new Float32Array(post.frequencyBinCount);
     const tdIn = new Float32Array(pre.fftSize), tdOut = new Float32Array(post.fftSize), tdFin = new Float32Array(fin.fftSize);
+    const tdElem = new Float32Array(elem.fftSize);
+    let sqElem = 0;
     const diff = probes.map(() => ({ d: 0, lv: 0, c: 0 }));
     let peak = 0, peakOut = 0, sqIn = 0, sqOut = 0, n = 0, top = 0, reduction = 0;
     // 測っている途中で動画が止まったり、最初に戻ったり（広告や読み込み直し）したら、結果を使わない
     let interrupted = false, lastTime = v.currentTime, limiterReduction = 0;
+    // リミッターが効いていない瞬間の数。周波数特性は、その瞬間だけで測る（素通しのときはリミッターを通らないので、すべて数える）
+    let cleanFrames = 0;
     for (let i = 0; i < FRAMES; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (v.paused || v.currentTime < lastTime) interrupted = true;
       lastTime = v.currentTime;
       reduction = Math.min(reduction, g.compressor.reduction);
       limiterReduction = Math.min(limiterReduction, g.limiter.reduction);
+      const clean = g.limiter.reduction > -0.3 || g.wet.gain.value < 0.5;
+      if (clean) cleanFrames++;
       pre.getFloatFrequencyData(a);
       post.getFloatFrequencyData(b);
       pre.getFloatTimeDomainData(tdIn);
       post.getFloatTimeDomainData(tdOut);
       fin.getFloatTimeDomainData(tdFin);
+      elem.getFloatTimeDomainData(tdElem);
       for (let j = 0; j < tdOut.length; j++) {
         peak = Math.max(peak, Math.abs(tdFin[j]));
         peakOut = Math.max(peakOut, Math.abs(tdOut[j]));
         sqIn += tdIn[j] * tdIn[j];
         sqOut += tdOut[j] * tdOut[j];
+        sqElem += tdElem[j] * tdElem[j];
         n++;
       }
       // 最も強い成分より 50dB 以上弱いビンはノイズに埋もれていて差が当てにならないので、測定に使わない
       const mx = Math.max(...a);
       top += mx;
       probes.forEach((p, k) => {
+        if (!clean) return;
         for (let j = Math.ceil(p * 0.95 / hz); j <= Math.floor(p * 1.05 / hz); j++) {
           if (a[j] > mx - 50) { diff[k].d += b[j] - a[j]; diff[k].lv += a[j]; diff[k].c++; }
         }
       });
     }
     const avg = (k, key) => (diff[k].c ? diff[k][key] / diff[k].c : null);
-    // リミッターが効いた区間は、EQ の特性どおりにならないので周波数特性では判定しない
-    if (limiterReduction < -1) expected = probes.map(() => null);
+    // リミッターが効いた瞬間は、EQ の特性どおりにならないので、周波数特性の測定に使っていない。
+    // 効いていない瞬間が少なすぎる（4 秒のうち 1 秒未満）ときは、判定しない
+    const limited = cleanFrames < FRAMES / 4;
+    if (limited) expected = probes.map(() => null);
     return {
       ctxState: ctx.state, sampleRate: ctx.sampleRate,
       video: { paused: v.paused, time: v.currentTime, interrupted },
-      peak, peakOut, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
+      peak, peakOut, limited, inRmsDb: 10 * Math.log10(sqIn / n), outRmsDb: 10 * Math.log10(sqOut / n), topDb: top / FRAMES,
+      elementRmsDb: 10 * Math.log10(sqElem / n),
       params: {
         gains: g.filters.map((f) => f.gain.value),
         wet: g.wet.gain.value, dry: g.dry.gain.value, nrDry: g.nrDry.gain.value,
@@ -140,15 +158,15 @@ const INSTALL_PROBE = `(async () => {
         },
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
-        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET, limit: AutoEq.LIMIT } : null,
+        auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
   };
-  // 入口に音が来ているか（今の瞬間の二乗和。完全な無音なら 0）
-  const level = new Float32Array(pre.fftSize);
+  // 動画から音が来ているか（今の瞬間の二乗和。完全な無音なら 0）
+  const level = new Float32Array(elem.fftSize);
   globalThis.__audioFxLevel = () => {
-    pre.getFloatTimeDomainData(level);
+    elem.getFloatTimeDomainData(level);
     return level.reduce((sum, x) => sum + x * x, 0);
   };
 
@@ -237,6 +255,31 @@ async function check(browser, extId, url) {
   });
   cdp.on('Runtime.executionContextsCleared', () => contexts.clear());
   await cdp.send('Runtime.enable');
+  // 音声グラフのノードとつながり。測定用の AnalyserNode は出力先につながないので、
+  // 動画の音（MediaElementAudioSource）から出力先（AudioDestination）までの道があるかで、音が出ていくかを確かめる
+  const nodes = new Map(), edges = new Map();
+  cdp.on('WebAudio.audioNodeCreated', ({ node }) => nodes.set(node.nodeId, node.nodeType));
+  cdp.on('WebAudio.nodesConnected', ({ sourceId, destinationId }) => {
+    if (!edges.has(sourceId)) edges.set(sourceId, new Set());
+    edges.get(sourceId).add(destinationId);
+  });
+  cdp.on('WebAudio.nodesDisconnected', ({ sourceId, destinationId }) => {
+    if (destinationId) edges.get(sourceId)?.delete(destinationId);
+    else edges.delete(sourceId);
+  });
+  const reachesDestination = () => {
+    const queue = [...nodes].filter(([, type]) => type === 'MediaElementAudioSource').map(([id]) => id);
+    const seen = new Set(queue);
+    while (queue.length) {
+      const id = queue.shift();
+      if (nodes.get(id) === 'AudioDestination') return true;
+      for (const next of edges.get(id) ?? []) {
+        if (!seen.has(next)) { seen.add(next); queue.push(next); }
+      }
+    }
+    return false;
+  };
+  await cdp.send('WebAudio.enable');
   const evaluate = async (contextId, expression) => {
     const { result, exceptionDetails } = await cdp.send('Runtime.evaluate', {
       contextId, expression, awaitPromise: true, returnByValue: true,
@@ -247,7 +290,11 @@ async function check(browser, extId, url) {
 
   let popup;
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    } catch (e) {
+      return { url, skip: `ページを開けない（${e.message}）` };
+    }
     await sleep(12000);
     const title = (await page.title()).split(' - ')[0];
 
@@ -287,6 +334,11 @@ async function check(browser, extId, url) {
     const { frameTree } = await cdp.send('Page.getFrameTree');
     const contextId = contexts.get(frameTree.frame.id);
     if (contextId === undefined) return { url, title, logs, fail: 'content script が注入されていない' };
+    // 測定用の関数は AudioGraph.attach を呼ぶので、拡張の「再生が始まったら接続する」処理が壊れていても接続してしまう。
+    // その前に、拡張が自分で接続したかを確かめる
+    let connected = false;
+    for (let t = 0; t < 10 && !(connected = await evaluate(contextId, 'AudioGraph.status().connected')); t++) await sleep(1000);
+    if (!connected) return { url, title, logs, video, fail: '再生が始まっても、拡張が自動で接続しなかった' };
     if (!(await evaluate(contextId, INSTALL_PROBE))) return { url, title, logs, video, fail: '接続されていない' };
     // 再生を始めてしばらく無音の配信がある（ニコ生の国会中継で、拡張がなくても再生開始から約1分無音だった）。
     // 音が来るまで最長90秒待ってから測る
@@ -302,19 +354,23 @@ async function check(browser, extId, url) {
     for (const scenario of SCENARIOS) {
       const s = presets[scenario.eqPreset] ? { ...scenario, gains: presets[scenario.eqPreset] } : scenario;
       await setPopup(popup, s);
-      // 全体を無効にしたとき、「有効」のスイッチ以外を操作できなくなっているか
-      const locked = await popup.evaluate(() => !document.querySelector(':is(.denoise, .leveler, .eq) :is(input, select):enabled, #reset:enabled'));
+      // 全体を無効にしたとき、「有効」のスイッチ以外を操作できなくなっているか。
+      // 手動の EQ（プリセット・スライダー）は、手動のときだけ操作できるか
+      const { locked, manualEditable } = await popup.evaluate(() => ({
+        locked: !document.querySelector(':is(.denoise, .leveler, .eq) :is(input, select):enabled, #reset:enabled'),
+        manualEditable: !document.getElementById('eqPreset').disabled && [...document.querySelectorAll('.band input')].every((i) => !i.disabled),
+      }));
       // 背面のタブはタイマーが間引かれるので、測定するページを前面に戻す。
       // ノイズキャンセルを初めて有効にしたときは、WASM・モデルの読み込みと切り替えの待ちがあるので長めに待つ。
       // オートEQ は分析がたまって補正が落ち着くまで待つ
       await page.bringToFront();
       await sleep(s.wait ?? 2000);
-      runs.push({ scenario: s, locked, m: await evaluate(contextId, '__audioFxProbe()') });
+      runs.push({ scenario: s, locked, manualEditable, m: await evaluate(contextId, '__audioFxProbe()') });
       await popup.bringToFront();
     }
     // 最後に、プレイヤーの音量を 0.25 にして打ち消しを確かめる（測り終えたら元の音量に戻す）
     const volume = await evaluate(contextId, '__audioFxVolumeProbe(0.25)');
-    return { url, title, logs, video, runs, volume };
+    return { url, title, logs, video, runs, volume, reachesDestination: reachesDestination() };
   } catch (e) {
     return { url, fail: e.message };
   } finally {
@@ -323,22 +379,33 @@ async function check(browser, extId, url) {
   }
 }
 
-function judgeRun({ scenario, m, locked }) {
+function judgeRun({ scenario, m, locked, manualEditable }) {
   if (locked !== !scenario.enabled) return { ok: false, reason: scenario.enabled ? 'ポップアップの欄を操作できない' : '全体を無効にしても、ほかの欄を操作できる' };
+  if (scenario.enabled && manualEditable === scenario.autoEq) {
+    return { ok: false, reason: scenario.autoEq ? 'オートなのに手動の EQ を操作できる' : '手動なのにプリセットやスライダーを操作できない' };
+  }
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
-  // 入口から無音なら、拡張の処理とは関係なく判定できない（YouTube の広告や読み込み直しで動画が止まることがある）
+  // 動画からは音が来ているのに拡張の入口が無音なら、拡張の問題
+  if (m.inRmsDb === null && m.elementRmsDb !== null) return { ok: false, reason: '動画の音は来ているのに、拡張の入口（source）で無音になっている' };
+  // 動画から無音なら、拡張の処理とは関係なく判定できない（YouTube の広告や読み込み直しで動画が止まることがある）
   if (m.video.paused || m.inRmsDb === null) return { ok: false, skip: true, reason: '入口が無音で判定できない（動画が止まっている、広告など）' };
   if (m.video.interrupted) return { ok: false, skip: true, reason: '測っている途中で動画が止まった、または最初に戻った（広告など）' };
   if (m.peak === 0) return { ok: false, reason: '完全な無音（CORS や WASM の読み込み失敗の可能性）' };
-  if (m.peak > 1) return { ok: false, reason: `出力が 0dBFS を超えた（ピーク ${m.peak.toFixed(3)}、音割れ）` };
+  // 素通しのときは、動画の音がそのまま出ていく（元の音が 0dBFS を超えていても、拡張のせいではない）
+  if (scenario.enabled && m.peak > 1) return { ok: false, reason: `出力が 0dBFS を超えた（ピーク ${m.peak.toFixed(3)}、音割れ）` };
   // エフェクト側はリミッターを通るので、音量をかけ直す前でも 0dBFS を超えないはず（素通しのときは元の音のまま）
   if (scenario.enabled && m.peakOut > 1) return { ok: false, reason: `リミッターを通った音が 0dBFS を超えた（ピーク ${m.peakOut.toFixed(3)}）` };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
   if (scenario.autoEq) {
+    // ほぼ無音の配信（ニコ生の馬房の定点カメラで、大半が -100dB 以下）では、分析に使える音が少なく、20 秒では分析が終わらないことがある
+    if (!p.auto?.ready && m.inRmsDb < -60) return { ok: false, skip: true, reason: '音がほとんどなく、オートEQ の分析が終わらない' };
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
-    const limit = p.auto.limit;
-    if (p.auto.gains.some((g) => Math.abs(g) > limit + 0.01)) return { ok: false, reason: `オートEQ の補正量が ±${limit}dB を超えている` };
+    if (p.auto.gains.some((g) => g < -AUTO_LIMIT - 0.01)) return { ok: false, reason: `オートEQ の補正量が -${AUTO_LIMIT}dB を下回っている` };
+    if (p.auto.gains.some((g, i) => g > AUTO_BOOST_LIMITS[i] + 0.01)) return { ok: false, reason: 'オートEQ が帯域ごとの上限を超えて持ち上げている' };
+    // 実際の配信の音が目安の形とぴったり同じことはないので、補正量がすべて 0 に近いなら補正の計算が働いていない
+    if (!p.auto.gains.some((g) => Math.abs(g) >= 1)) return { ok: false, reason: 'オートEQ の補正量がすべて 1dB 未満（補正していない）' };
+    if (!p.gains.some((g) => Math.abs(g) >= 0.5)) return { ok: false, reason: 'フィルタがオートEQ の補正量で動いていない' };
     // 補正量は毎秒計算し直され、フィルタのゲインはそれを時定数1秒で追いかける。
     // 分析を始めて間もないころに内容がよく変わると、補正量が1秒に2dB以上動くこともある（Twitch で 2.4dB）ので、3dB までの差は許す
     if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 3))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
@@ -362,10 +429,18 @@ function judgeRun({ scenario, m, locked }) {
   if (scenario.leveler && !near(p.comp.threshold, LEVELER_THRESHOLDS[scenario.levelerStrength], 0.01)) {
     return { ok: false, reason: '音量をそろえるの強さが設定と違う' };
   }
+  // しきい値より十分大きい音が来ているのに圧縮していなければ、コンプレッサーを通っていない
+  if (scenario.leveler && m.inRmsDb > LEVELER_THRESHOLDS[scenario.levelerStrength] + 6 && p.comp.maxReduction > -0.5) {
+    return { ok: false, reason: '音量をそろえるが効いていない（大きい音が来ているのに圧縮していない）' };
+  }
   const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
   if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
     return { ok: false, reason: `周波数特性が期待値と ${TOLERANCE_DB}dB 以上ずれている` };
   }
+  // EQ の効き方を確かめる設定で、リミッターが効いて判定できなかったときは、OK ではなく判定できないものとして扱う
+  // （低音強調はリミッターが効く前提で、0dBFS を超えないことを確かめている）
+  const checksEq = scenario.enabled && !scenario.autoEq && !scenario.denoise && !scenario.leveler && scenario.eqPreset !== 'bass';
+  if (checksEq && m.limited) return { ok: false, skip: true, reason: 'リミッターが効いたので、EQ の効き方を判定できない' };
   const expectsBands = m.bands.some((b) => b.expectedDb !== null);
   if (expectsBands && judged.length < 2) return { ok: false, skip: true, reason: '測れる帯域が少ない' };
   return { ok: true };
@@ -381,8 +456,13 @@ function judgeVolume({ volume, inGainDb, outGainDb }) {
   return { ok: true };
 }
 
+// 動画の音から出力先までつながっているか
+function judgeDestination(r) {
+  return r.reachesDestination ? { ok: true } : { ok: false, reason: '動画の音が出力先（AudioDestination）までつながっていない' };
+}
+
 function judge(r) {
-  const results = [...r.runs.map(judgeRun), judgeVolume(r.volume)];
+  const results = [...r.runs.map(judgeRun), judgeVolume(r.volume), judgeDestination(r)];
   return {
     ok: results.every((j) => j.ok),
     skip: results.some((j) => j.skip) && !results.some((j) => !j.ok && !j.skip),
@@ -431,6 +511,9 @@ function report(r, j) {
   const db = (x) => (x === null ? '-' : x.toFixed(1));
   console.log(`\n  [プレイヤーの音量を ${r.volume.volume} にする] ゲイン 入口 ${db(r.volume.inGainDb)}dB　出口 ${db(r.volume.outGainDb)}dB`);
   console.log(vj.ok ? '    OK' : `    ${vj.skip ? 'スキップ' : 'NG'}: ${vj.reason}`);
+  const dj = j.results[r.runs.length + 1];
+  console.log('\n  [出力先までつながっているか]');
+  console.log(dj.ok ? '    OK' : `    NG: ${dj.reason}`);
   console.log(j.ok ? '\n  結果: OK' : `\n  結果: ${j.skip ? 'スキップ' : 'NG'}`);
 }
 
@@ -442,16 +525,17 @@ async function main() {
     return 1;
   }
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-fx-verify-'));
-  const browser = await puppeteer.launch({
-    executablePath: CHROME,
-    headless: true,
-    pipe: true,
-    enableExtensions: true,
-    userDataDir: profile,
-    args: ['--mute-audio', '--lang=ja', '--window-size=1400,900'],
-    defaultViewport: { width: 1400, height: 900 },
-  });
+  let browser;
   try {
+    browser = await puppeteer.launch({
+      executablePath: CHROME,
+      headless: true,
+      pipe: true,
+      enableExtensions: true,
+      userDataDir: profile,
+      args: ['--mute-audio', '--lang=ja', '--window-size=1400,900'],
+      defaultViewport: { width: 1400, height: 900 },
+    });
     const extId = await browser.installExtension(EXTENSION);
     const targets = urls.length ? urls : await findBroadcasts(browser, site);
     for (const url of targets.slice(0, MAX_TRIES)) {
@@ -465,7 +549,7 @@ async function main() {
     console.log('\n判定できる放送が見つからなかった');
     return 2;
   } finally {
-    await browser.close();
+    await browser?.close();
     fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   }
 }

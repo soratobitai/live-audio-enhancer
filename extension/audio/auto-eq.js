@@ -16,11 +16,10 @@ const AutoEq = (() => {
   const FLOOR_DB = -100; // これより小さいときは完全な無音とみなす
   const GATE_DB = 20; // ふだんの大きさよりこれだけ小さいときは、話の間などとみなす
   const ABSENT_DB = 24; // 目安より 24dB 以上小さい帯域は、もともと音が入っていないとみなして持ち上げない
-  // 補正の強さ。目安との差をそのまま（100%）補正し、上限は ±12dB。
+  // 補正の上限（±dB）。目安との差はそのまま（100%）補正する。
   // 以前は強さを選べた（控えめ 50%・±6dB、標準 75%・±9dB）が、差が聞き分けにくく、強めで聞きやすくなったので強めに固定した
-  const AMOUNT = 1;
   const LIMIT = 12;
-  // 持ち上げる上限を、帯域ごとに limit の何倍にするか（下げる上限はどの帯域も limit）。
+  // 持ち上げる上限を、帯域ごとに LIMIT の何倍にするか（下げる上限はどの帯域も LIMIT）。
   // 声の配信で低い帯域や、圧縮で削られた高い帯域を持ち上げても、こもった響きや雑音が増えるだけなので、
   // 両端（31Hz・62Hz・16kHz）は下げるだけにし、125Hz・8kHz は半分にする
   const BOOST_SCALE = [0, 0, 0.5, 1, 1, 1, 1, 1, 0.5, 0];
@@ -35,17 +34,25 @@ const AutoEq = (() => {
   }
 
   function correction(levels) {
-    const offset = MID.reduce((s, i) => s + levels[i] - TARGET[i], 0) / MID.length;
+    // 目安の形の高さを、125Hz〜4kHz の平均で合わせる。もともと音が入っていない帯域を平均に入れると、
+    // 高さが下がって中域全体を下げてしまう（125Hz がほとんどない番組で、250Hz〜4kHz を約 7dB 下げていた）。
+    // いったん全体で合わせてから、音が入っていない帯域を除いて合わせ直す
+    const offsetOf = (bands) => bands.reduce((s, i) => s + levels[i] - TARGET[i], 0) / bands.length;
+    let offset = offsetOf(MID);
+    const present = MID.filter((i) => levels[i] >= TARGET[i] + offset - ABSENT_DB);
+    if (present.length > 0 && present.length < MID.length) offset = offsetOf(present);
+    const absent = levels.map((level, i) => level < TARGET[i] + offset - ABSENT_DB);
     const raw = levels.map((level, i) => {
-      const want = TARGET[i] + offset;
-      const d = want - level;
-      return level < want - ABSENT_DB ? Math.min(d, 0) : d;
+      const d = TARGET[i] + offset - level;
+      return absent[i] ? Math.min(d, 0) : d;
     });
     // 隣の帯域と少しならして、補正の形がギザギザにならないようにする。
     // ならしすぎると補正の山が削られて効きが小さくなるので、隣の重みは小さめにする
     const smooth = raw.map((x, i) => (raw[i - 1] ?? x) * 0.2 + x * 0.6 + (raw[i + 1] ?? x) * 0.2);
     return smooth.map((x, i) => {
-      const d = Math.min(LIMIT * BOOST_SCALE[i], Math.max(-LIMIT, x * AMOUNT));
+      // 音が入っていない帯域は、ならしで隣から持ち上がった分も含めて、持ち上げない
+      const boost = absent[i] ? 0 : LIMIT * BOOST_SCALE[i];
+      const d = Math.min(boost, Math.max(-LIMIT, x));
       return Math.round(d * 10) / 10;
     });
   }
@@ -60,7 +67,7 @@ const AutoEq = (() => {
     const spectrum = new Float32Array(analyser.frequencyBinCount);
     const power = new Float64Array(bins.length);
     let seconds = 0; // 平均に入れた音の長さ
-    let usual = 0; // ふだんの大きさ（完全な無音以外の全体の平均。パワー）
+    let usualDb = 0; // ふだんの大きさ（完全な無音以外の全体の、dB での平均）
     let frames = 0; // ふだんの大きさに入れた回数
     let levels = null; // 帯域ごとの平均レベル（dB）
     let gains = Settings.BANDS.map(() => 0);
@@ -76,10 +83,12 @@ const AutoEq = (() => {
       const db = 10 * Math.log10(total);
       if (!(db > FLOOR_DB)) return;
       // ふだんの大きさは、帯域の平均と同じく、最初のうちは単純な平均、たまったら指数移動平均にする。
-      // 番組の音量が大きく下がっても、しばらくすると追いつく
+      // 番組の音量が大きく下がっても、しばらくすると追いつく。
+      // パワーではなく dB で平均する。パワーの平均は、ときどき入る大きな音に引っ張られて高くなり、
+      // 小さい環境音がほとんどの番組（ニコ生の馬房の定点カメラ）で、その環境音をほとんど捨てて分析が終わらなかった
       frames += 1;
-      usual += (total - usual) * Math.max(ANALYZE_MS / 1000 / AVERAGE_SECONDS, 1 / frames);
-      if (db < 10 * Math.log10(usual) - GATE_DB) return;
+      usualDb += (db - usualDb) * Math.max(ANALYZE_MS / 1000 / AVERAGE_SECONDS, 1 / frames);
+      if (db < usualDb - GATE_DB) return;
       seconds += ANALYZE_MS / 1000;
       // 最初のうちは単純な平均、たまったら指数移動平均にする
       const a = Math.max(ANALYZE_MS / 1000 / AVERAGE_SECONDS, ANALYZE_MS / 1000 / seconds);
