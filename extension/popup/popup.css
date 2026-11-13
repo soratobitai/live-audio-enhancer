@@ -151,14 +151,10 @@ h2 {
   background: #22c55e;
 }
 
-.status[data-state="other"]::before,
-.status[data-state="music"]::before {
+.status[data-state="other"]::before {
   background: #f59e0b;
 }
 
-.status[data-state="neutral"]::before {
-  background: var(--accent);
-}
 
 .status[hidden] {
   display: none;

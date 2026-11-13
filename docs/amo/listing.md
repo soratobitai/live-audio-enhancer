@@ -22,13 +22,13 @@ Developer Hub の各欄に、そのまま貼り付けて使う。日本語を既
 ### 日本語
 
 ```
-ニコ生・YouTube・Twitch・TVer・ABEMAなどの配信の音を聞きやすくします。AIノイズキャンセル（話し声のときだけかけるオートつき）、音量をそろえる、話し声と音楽に合わせて自動で整えるイコライザー。
+ニコ生・YouTube・Twitch・TVer・ABEMAなどの配信の音を聞きやすくします。AIノイズキャンセル（音楽や歌が続くと自動で外すオートつき）、音量をそろえる、話し声が聞きやすいように自動で整えるイコライザー。
 ```
 
 ### English
 
 ```
-Make live streams easier to listen to: AI noise suppression (Auto applies it only while people are talking), loudness leveling, and an equalizer that adapts automatically to speech or music. Works on YouTube, Twitch, Kick, niconico, TVer and ABEMA.
+Make live streams easier to listen to: AI noise suppression (Auto turns it off while music or singing continues), loudness leveling, and an equalizer that automatically makes voices easier to hear. Works on YouTube, Twitch, Kick, niconico, TVer and ABEMA.
 ```
 
 ## 説明（Description、15,000 文字まで）
@@ -41,12 +41,12 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 主な機能
 ・AIノイズキャンセル
 　エアコンやキーボードの音、環境音など、声以外の雑音を抑えます。「標準」（軽い）と「強め」（雑音をより強く抑える）から選べます。
-　「オート」にすると、話し声が中心のときだけかけ、音楽や歌のときは自動で外します。歌枠やカラオケでも、歌声が乱れません。
+　「オート」にすると、ふだんはかけ、音楽や歌が続くときは自動で外します（外れるまで15秒ほどかかります）。
 ・音量をそろえる
 　大きすぎる声やBGMは抑え、小さい声は持ち上げて、聞きやすい音量にそろえます（標準・強め）。
 ・イコライザー
 　10バンドのイコライザーと、12種類のプリセット（声を聞きやすく、ニュース、トーク、音楽、映画、ゲーム実況、小音量・夜間など）。
-　「オート」にすると、番組の音を分析して、話し声なら話し声向け、音楽なら音楽向けのバランスに自動で整えます。
+　「オート」にすると、番組の音を分析して、話し声が聞きやすいバランスに自動で整えます。音楽向けにしたいときは、手動でプリセットを選んでください。
 ・音割れ防止
 　音を持ち上げても音割れしないよう、リミッターが働きます。
 
@@ -78,10 +78,10 @@ Live Audio Enhancer makes the sound of live streams and videos easier to listen 
 
 Features
 - AI noise suppression: reduces background noise such as air conditioners, keyboards and room noise. Choose Standard (light) or Strong (stronger suppression).
-  In Auto mode, it is applied only while people are talking and is turned off automatically for music and singing, so songs are not distorted.
+  In Auto mode, it stays on and is turned off automatically while music or singing continues (it takes about 15 seconds).
 - Loudness leveling: tames loud voices and music and lifts quiet voices (Standard / Strong).
 - Equalizer: 10 bands and 12 presets (voice clarity, news, talk, music, movie, game commentary, quiet listening at night, and more).
-  In Auto mode, it analyzes the program and balances the sound for speech or music automatically.
+  In Auto mode, it analyzes the program and balances the sound so that voices are easy to hear. For music, choose a preset manually.
 - A limiter prevents clipping when the sound is boosted.
 
 Supported sites
@@ -110,6 +110,6 @@ Libraries
 | ファイル | 説明（Caption） |
 |---|---|
 | `1-overview.png` | ノイズキャンセル、音量をそろえる、イコライザーを1つの画面で設定できます |
-| `2-auto.png` | オートなら、話し声のときだけノイズキャンセルをかけ、イコライザーも自動で整えます |
+| `2-auto.png` | オートなら、ノイズキャンセルは音楽や歌が続くと自動で外し、イコライザーは話し声が聞きやすいように自動で整えます |
 
 UI を変えたら `npm run amo:screenshots` で作り直す。

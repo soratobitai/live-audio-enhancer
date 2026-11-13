@@ -2,18 +2,14 @@
 
 // オートEQ。EQ に入る前の音を分析し、帯域ごとの長い時間の平均レベルを目安の形に近づけるゲインを求める。
 // EQ の後ろではなく前で測るので、自分の補正を測り直して補正が強まり続けることはない。
-// 目安の形は、話し声の判定（SpeechJudge）に合わせて、話し声用と音楽用を使い分ける。
+// 目安の形は、話し声を聞きやすくする形の 1 つだけ。音楽向けにしたいときは、手動のプリセットを使う。
 const AutoEq = (() => {
-  // 目安の形（帯域ごとの相対レベル、dB。31Hz〜16kHz）。聞いて調整する前提の値
-  //   neutral: 判定の前に使う。中域を平らにし、高域に向かってなだらかに下げた形（v0.19 までは常にこの形）
-  //   speech: 話し声用。低音（こもり・ブーン）をさらに抑え、声の明瞭さに効く 2〜4kHz を neutral より 2〜3dB 残す
-  //   music: 音楽や歌用。低音と高音を neutral より残し、厚みと広がりを保つ
-  //   （31Hz・62Hz・16kHz は持ち上げないので、music の低音・高音は「削りすぎない」ように働く）
-  const TARGETS = Object.freeze({
-    neutral: [-8, -3, 0, 0, 0, -1, -3, -6, -9, -15],
-    speech: [-14, -9, -3, 0, 0, 0, -1, -3, -8, -15],
-    music: [-4, -1, 0, 0, 0, -1, -2, -4, -6, -10],
-  });
+  // 目安の形（帯域ごとの相対レベル、dB。31Hz〜16kHz）。聞いて調整する前提の値。
+  // 低音（こもり・ブーン）を抑え、声の明瞭さに効く 2〜4kHz を残し、高域に向かって下げる。
+  // v0.20〜v0.22 は、話し声の判定に合わせて、この形（speech）と音楽用（music: [-4, -1, 0, 0, 0, -1, -2, -4, -6, -10]）、
+  // 判定前用（neutral: [-8, -3, 0, 0, 0, -1, -3, -6, -9, -15]。v0.19 までは常にこの形）を切り替えていた。
+  // 判定の誤りや切り替わりで補正の形が行き来して落ち着かないので、話し声用だけにした（v0.23.0）
+  const TARGET = Object.freeze([-14, -9, -3, 0, 0, 0, -1, -3, -8, -15]);
   const MID = [2, 3, 4, 5, 6, 7]; // 125Hz〜4kHz。この範囲の平均で目安の形の高さを合わせる
   const ANALYZE_MS = 250;
   const UPDATE_MS = 1000;
@@ -42,8 +38,7 @@ const AutoEq = (() => {
     ]);
   }
 
-  function correction(levels, target) {
-    const TARGET = TARGETS[target];
+  function correction(levels) {
     // 目安の形の高さを、125Hz〜4kHz の平均で合わせる。もともと音が入っていない帯域を平均に入れると、
     // 高さが下がって中域全体を下げてしまう（125Hz がほとんどない番組で、250Hz〜4kHz を約 7dB 下げていた）。
     // いったん全体で合わせてから、音が入っていない帯域を除いて合わせ直す
@@ -81,7 +76,6 @@ const AutoEq = (() => {
     let frames = 0; // ふだんの大きさに入れた回数
     let levels = null; // 帯域ごとの平均レベル（dB）
     let gains = Settings.BANDS.map(() => 0);
-    let target = 'neutral';
 
     const analyze = setInterval(() => {
       analyser.getFloatFrequencyData(spectrum);
@@ -109,7 +103,7 @@ const AutoEq = (() => {
     const update = setInterval(() => {
       if (seconds < MIN_SECONDS) return;
       levels = Array.from(power, (p) => 10 * Math.log10(p + 1e-30));
-      gains = correction(levels, target);
+      gains = correction(levels);
       onUpdate(gains);
     }, UPDATE_MS);
 
@@ -118,16 +112,6 @@ const AutoEq = (() => {
       gains: () => gains,
       // 目安の形の高さに合わせた、帯域ごとの平均レベル（検証と表示用）
       levels: () => levels,
-      target: () => target,
-      // 目安の形を変える（話し声の判定が変わったとき）。分析が済んでいれば、すぐに補正し直す
-      setTarget(next) {
-        if (next === target || !TARGETS[next]) return;
-        target = next;
-        if (levels) {
-          gains = correction(levels, target);
-          onUpdate(gains);
-        }
-      },
       stop() {
         clearInterval(analyze);
         clearInterval(update);
@@ -136,5 +120,5 @@ const AutoEq = (() => {
     };
   }
 
-  return { TARGETS, LIMIT, create };
+  return { TARGET, LIMIT, create };
 })();

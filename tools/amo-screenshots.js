@@ -1,6 +1,7 @@
 // ストア（AMO）に載せるスクリーンショット（1280×800）を作る。docs/amo/screenshots/ に保存する。
 // 実際のポップアップの画面（extension/popup/popup.html）を開き、左にポップアップ、右に説明を並べて撮る。
-// オートの画面は、配信につないだときの表示（Twitch の雑談で実際に出た状態と補正量）を再現して撮る。
+// オートの画面は、配信につないだときの補正量（Twitch の雑談で実際に出た値）を再現して撮る。
+// ここでは開発中の拡張として読み込むので、オートの状態（「今：〜」）が出る。利用者には出ないので、消してから撮る。
 //
 // 使い方:
 //   npm run amo:screenshots
@@ -25,14 +26,10 @@ const SHOTS = [
   {
     file: '2-auto.png',
     title: 'オートにおまかせ',
-    points: ['ノイズキャンセルは話し声のときだけ', '音楽や歌のときは自動で外す', 'イコライザーは話し声・音楽に合わせて自動調整'],
+    points: ['ノイズキャンセルは、音楽や歌が続くと自動で外す', 'イコライザーは、話し声が聞きやすいように自動調整'],
     settings: { enabled: true, denoise: true, denoiseAuto: true, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: true, eqPreset: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    // 配信につないだときの表示（オートの状態と補正量）
-    status: {
-      denoise: '今：話し声なので、かけています',
-      eq: '今：話し声に合わせて調整しています',
-      gains: [0, 0, 3.0, -4.1, -4.5, 0.3, 3.1, 5.7, 6.0, 0],
-    },
+    // 配信につないだときの、オートEQ の補正量
+    autoGains: [0, 0, 3.0, -4.1, -4.5, 0.3, 3.1, 5.7, 6.0, 0],
   },
 ];
 
@@ -51,15 +48,12 @@ try {
     await popup.reload();
     await popup.waitForSelector('.band input');
     await new Promise((r) => setTimeout(r, 1500));
-    if (shot.status) {
-      await popup.evaluate((st) => {
-        for (const [selector, text] of [['.denoise-note', st.denoise], ['.auto-note', st.eq]]) {
-          const note = document.querySelector(selector);
-          note.textContent = text;
-          note.dataset.state = 'speech';
-        }
+    // 利用者の画面に合わせて、オートの状態（開発中の拡張でだけ出る）を消す
+    await popup.evaluate(() => document.querySelectorAll('.status').forEach((note) => note.remove()));
+    if (shot.autoGains) {
+      await popup.evaluate((gains) => {
         const inputs = [...document.querySelectorAll('.band input')];
-        st.gains.forEach((g, i) => {
+        gains.forEach((g, i) => {
           const input = inputs.find((el) => Number(el.dataset.band) === i);
           input.value = g;
           input.parentElement.querySelector('output').textContent = `${g > 0 ? '+' : ''}${g.toFixed(1)} dB`;
@@ -68,7 +62,7 @@ try {
           input.style.setProperty('--a', `${Math.min(pos, 50)}%`);
           input.style.setProperty('--b', `${Math.max(pos, 50)}%`);
         });
-      }, shot.status);
+      }, shot.autoGains);
     }
     const height = await popup.evaluate(() => Math.ceil(document.body.getBoundingClientRect().height));
     const png = await popup.screenshot({ clip: { x: 0, y: 0, width: POPUP_WIDTH, height }, encoding: 'base64' });

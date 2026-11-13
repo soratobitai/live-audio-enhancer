@@ -35,12 +35,12 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 主な機能
 ・AIノイズキャンセル
 　エアコンやキーボードの音、環境音など、声以外の雑音を抑えます。「標準」（軽い）と「強め」（雑音をより強く抑える）から選べます。
-　「オート」にすると、話し声が中心のときだけかけ、音楽や歌のときは自動で外します。歌枠やカラオケでも、歌声が乱れません。
+　「オート」にすると、ふだんはかけ、音楽や歌が続くときは自動で外します（外れるまで15秒ほどかかります）。
 ・音量をそろえる
 　大きすぎる声やBGMは抑え、小さい声は持ち上げて、聞きやすい音量にそろえます（標準・強め）。
 ・イコライザー
 　10バンドのイコライザーと、12種類のプリセット（声を聞きやすく、ニュース、トーク、音楽、映画、ゲーム実況、小音量・夜間など）。
-　「オート」にすると、番組の音を分析して、話し声なら話し声向け、音楽なら音楽向けのバランスに自動で整えます。
+　「オート」にすると、番組の音を分析して、話し声が聞きやすいバランスに自動で整えます。音楽向けにしたいときは、手動でプリセットを選んでください。
 ・音割れ防止
 　音を持ち上げても音割れしないよう、リミッターが働きます。
 
@@ -70,9 +70,9 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 [English]
 Live Audio Enhancer makes the sound of live streams and videos easier to listen to, in real time.
 
-- AI noise suppression: reduces background noise. Standard (light) or Strong. In Auto mode, it is applied only while people are talking and is turned off for music and singing.
+- AI noise suppression: reduces background noise. Standard (light) or Strong. In Auto mode, it stays on and is turned off while music or singing continues.
 - Volume leveling: tames loud parts and lifts quiet voices (Standard / Strong).
-- Equalizer: 10 bands and 12 presets. In Auto mode, it balances the sound for speech or music automatically.
+- Equalizer: 10 bands and 12 presets. In Auto mode, it balances the sound so that voices are easy to hear.
 - A limiter prevents clipping.
 
 Works on the six sites listed above. This is an unofficial extension, not affiliated with those sites.
@@ -140,7 +140,7 @@ The content script runs only on the six supported video sites (live.nicovideo.jp
 No account is needed. The UI is in Japanese.
 1. Open a YouTube or Twitch video with people talking and play it with sound. Muted videos are processed after unmuting.
 2. Open the Live Audio Enhancer popup from the toolbar.
-3. ノイズキャンセル (Noise suppression): オン (On) reduces background noise. オート (Auto) applies it only during speech; the line starting with "今：" shows the current state. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, about 70 ms latency).
+3. ノイズキャンセル (Noise suppression): オン (On) reduces background noise. オート (Auto) keeps it on and turns it off after music or singing continues for about 15 seconds; the line starting with "今：" shows the current state. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, about 70 ms latency).
 4. 音量をそろえる (Leveler): the switch evens out loud and quiet parts.
 5. イコライザー (Equalizer): オート (Auto) adjusts it automatically; 手動 (Manual) uses the presets and sliders.
 6. 有効 (Enabled), at the top, turns all effects off.

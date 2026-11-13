@@ -244,58 +244,20 @@ const AudioGraph = (() => {
 
   // 使わなくなった方式は、出力をフェードアウトしてから止める（裏で処理し続けて CPU を使わないように）。
   // もう一度選ばれたときは作り直す（WASM やモデルは読み込み済みなので速い）
-  // ノイズキャンセルのオートの判定を、使っているノイズキャンセルのノード（node）に合わせて始める・止める。
-  // 方式を切り替えたときは、新しいノードで判定し直す。判定が変わったら設定を反映し直す
-  // 話し声の判定（SpeechJudge）を、ノイズキャンセルのオートかイコライザーのオートのときだけ動かす。
-  // 判定には、ノイズキャンセルのノードの出口を使う（engineNode。準備中は null）。
-  // ノイズキャンセルをオフにしているときは、判定のためだけに RNNoise を動かす（音には使わない。1コアの約 4%）。
-  // 判定が変わったら設定を反映し直す（ノイズキャンセルのかけ外しと、オートEQ の目安の形）
+  // ノイズキャンセルのオートの判定（SpeechJudge）を、オートのときだけ動かす。
+  // 判定には、使っているノイズキャンセルのノードの出口を使う（engineNode。準備中は null）。
+  // 方式を切り替えたときは、新しいノードで判定し直す。判定が変わったら設定を反映し直す（ノイズキャンセルのかけ外し）。
+  // v0.22 までは、オートEQ でも目安の形を切り替えるのに使い、ノイズキャンセルがオフなら判定のためだけに RNNoise を動かしていた
   function applyJudge(g, engineNode) {
-    const needed = settings.enabled && ((settings.denoise && settings.denoiseAuto) || settings.autoEq);
-    const node = !needed ? null : settings.denoise ? engineNode : judgeEngineNode(g);
+    const node = settings.enabled && settings.denoise && settings.denoiseAuto ? engineNode : null;
     if (g.judge && g.judge.node !== node) {
       g.judge.stop();
       g.judge = null;
     }
-    // 判定だけのための RNNoise は、ノイズキャンセルをオフにしていて判定が要るときだけ残す
-    if (!needed || settings.denoise) stopJudgeEngine(g);
     if (node && !g.judge) {
       g.judge = SpeechJudge.create(g.source.context, g.source, node, () => apply(g, true));
       g.judge.node = node;
     }
-  }
-
-  // 判定だけのための RNNoise のノード。作っている途中は null を返し、できたら設定を反映し直す
-  function judgeEngineNode(g) {
-    if (!g.judgeEngine) {
-      const holder = { node: null, stop: null };
-      g.judgeEngine = holder;
-      createRnnoise(g.source.context, g.source).then((created) => {
-        if (!created) return;
-        const stop = () => {
-          g.source.disconnect(created.node);
-          created.stop();
-        };
-        // 作っているあいだに要らなくなっていたら、使わずに止める
-        if (g.judgeEngine !== holder) return stop();
-        holder.node = created.node;
-        holder.stop = stop;
-        apply(g, true);
-      });
-    }
-    return g.judgeEngine.node;
-  }
-
-  function stopJudgeEngine(g) {
-    const holder = g.judgeEngine;
-    g.judgeEngine = null;
-    holder?.stop?.();
-  }
-
-  // オートEQ の目安の形。話し声の判定に合わせて、話し声用・音楽用・判定前（neutral）を使い分ける
-  function autoTarget(g) {
-    const judged = g.judge?.state();
-    return judged === 'speech' ? 'speech' : judged === 'other' ? 'music' : 'neutral';
   }
 
   function stopEngine(g, name) {
@@ -349,7 +311,7 @@ const AudioGraph = (() => {
     // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
     return {
       element, source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, volume, engines: {}, auto: null,
-      judge: null, judgeEngine: null,
+      judge: null,
     };
   }
 
@@ -374,7 +336,6 @@ const AudioGraph = (() => {
         if (!settings.autoEq) return;
         gains.forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       });
-      g.auto.setTarget(autoTarget(g));
       // 分析がたまるまでは 0dB（素通し）から始める
       g.auto.gains().forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       return;
@@ -407,9 +368,9 @@ const AudioGraph = (() => {
     // 全体を無効にしているあいだは音に使わないので、CPU を使わないように止める（有効に戻すと作り直す。0.2〜0.4 秒）
     const denoise = settings.enabled && settings.denoise;
     const active = denoise ? g.engines[settings.engine] : undefined;
-    // ノイズキャンセルのオートのときは、話し声が主役と判定したあいだだけかける。ノードは動かしたまま判定を続ける
+    // ノイズキャンセルのオートのときは、音楽や歌が続いていると判定したあいだだけ外す。ノードは動かしたまま判定を続ける
     applyJudge(g, active?.node ?? null);
-    const paused = settings.denoiseAuto && g.judge?.state() !== 'speech';
+    const paused = settings.denoiseAuto && g.judge?.state() === 'other';
     const using = active?.node && !paused ? active : null;
     applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
@@ -480,7 +441,7 @@ const AudioGraph = (() => {
     const judge = latest?.judge;
     return {
       connected: !!latest,
-      autoEq: auto ? { ready: auto.ready(), gains: auto.gains(), target: auto.target() } : null,
+      autoEq: auto ? { ready: auto.ready(), gains: auto.gains() } : null,
       judge: judge ? { state: judge.state(), removal: judge.removal() } : null,
     };
   }

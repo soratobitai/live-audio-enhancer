@@ -21,11 +21,13 @@ const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
 // ノイズキャンセルの説明。選んでいるモードがどういう意味かを出す
 const DENOISE_EXPLAIN = {
   off: 'かけません。オンにすると、声以外の音を抑えます',
-  auto: '話し声のときだけかけ、音楽や歌のときは外します',
+  auto: 'ふだんはかけ、音楽や歌が続くときは外します',
   on: 'いつもかけます。音楽では音が乱れることがあります',
 };
 
 let state;
+// 開発中に読み込んだ拡張のときだけ、オートの状態（「今：〜」）を出す。ストアから入れた利用者には、判定の誤りを見せない
+let debug = false;
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
 // 状態の問い合わせ（オートEQ の補正量、ノイズキャンセルのオートの判定）
 let statusTimer = null;
@@ -43,6 +45,16 @@ function paintFill(input) {
 
 // ノイズキャンセルのオートが動いているか（全体が有効で、ノイズキャンセルがオート）
 const denoiseAuto = () => state.enabled && state.denoise && state.denoiseAuto;
+
+// 開発中に読み込んだ拡張か（Chrome の「パッケージ化されていない拡張機能」、Firefox の一時的なアドオン）。
+// management.getSelf は management の権限なしで使える。使えないときは、利用者向けとみなす
+async function isDevelopment() {
+  try {
+    return (await chrome.management.getSelf()).installType === 'development';
+  } catch {
+    return false;
+  }
+}
 
 // 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
@@ -120,23 +132,22 @@ async function showStatus(controls) {
   statusReplied = asked;
   const connected = usable && status?.connected;
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
-  if (state.autoEq) {
-    const target = status?.autoEq?.target;
-    autoNote.dataset.state = connected && status.autoEq?.ready ? target : 'wait';
+  if (state.autoEq && debug) {
+    const ready = connected && status.autoEq?.ready;
+    autoNote.dataset.state = ready ? 'speech' : 'wait';
     autoNote.textContent = !connected ? notConnected
-      : !status.autoEq?.ready ? '今：番組の音を分析しています…'
-      : target === 'speech' ? '今：話し声に合わせて調整しています'
-      : target === 'music' ? '今：音楽や歌に合わせて調整しています'
-      : '今：番組の音に合わせて調整しています';
-    if (status?.autoEq) showGains(controls, status.autoEq.gains);
+      : !ready ? '今：番組の音を分析しています…'
+      : '今：番組に合わせて調整しています';
   }
-  if (denoiseAuto()) {
+  if (state.autoEq && status?.autoEq) showGains(controls, status.autoEq.gains);
+  if (debug && denoiseAuto()) {
     const judged = status?.judge?.state;
+    // 判定はノイズキャンセルの準備ができてから始まる（準備中は judge がない）
     denoiseNote.dataset.state = connected ? judged ?? 'wait' : 'wait';
     denoiseNote.textContent = !connected ? notConnected
-      : judged === 'speech' ? '今：話し声なので、かけています'
-      : judged === 'other' ? '今：音楽や歌などなので、外しています'
-      : '今：音を調べています…';
+      : judged === 'speech' ? '今：かけています'
+      : judged === 'other' ? '今：音楽や歌が続いているので、外しています'
+      : '今：準備しています…';
   }
 }
 
@@ -146,13 +157,14 @@ function render(controls) {
   // 全体を無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
   const off = !state.enabled;
 
-  // ノイズキャンセル：オフ / オート（話し声が主役のときだけかける）/ オン
+  // ノイズキャンセル：オフ / オート（ふだんはかけ、音楽や歌が続くときは外す）/ オン
   const denoiseMode = !state.denoise ? 'off' : state.denoiseAuto ? 'auto' : 'on';
   for (const input of denoiseModeInputs) input.checked = input.value === denoiseMode;
   denoiseExplain.textContent = DENOISE_EXPLAIN[denoiseMode];
   for (const input of engineInputs) input.checked = input.value === state.engine;
   denoiseSection.classList.toggle('on', state.denoise);
-  denoiseNote.hidden = !denoiseAuto();
+  denoiseNote.hidden = !(debug && denoiseAuto());
+  autoNote.hidden = !debug;
 
   // 音量をそろえる：オン・オフと強さ
   levelerInput.checked = state.leveler;
@@ -184,14 +196,15 @@ function render(controls) {
   }
   if (!auto) showGains(controls, state.gains);
 
-  // 問い合わせる内容（オートEQ、ノイズキャンセルのオート）が変わったときだけ、問い合わせを始め直す
-  const want = [auto && 'auto-eq', denoiseAuto() && 'denoise'].filter(Boolean).join(',');
+  // 問い合わせる内容（オートEQ、ノイズキャンセルのオート）が変わったときだけ、問い合わせを始め直す。
+  // ノイズキャンセルのオートの状態は、表示するとき（開発中）だけ問い合わせる
+  const want = [auto && 'auto-eq', debug && denoiseAuto() && 'denoise'].filter(Boolean).join(',');
   if (want !== polling) {
     polling = want;
     statusGeneration += 1;
     clearInterval(statusTimer);
     statusTimer = null;
-    if (denoiseAuto()) denoiseNote.textContent = '今：音を調べています…';
+    if (debug && denoiseAuto()) denoiseNote.textContent = '今：準備しています…';
     if (want) {
       showStatus(controls);
       statusTimer = setInterval(() => showStatus(controls), 1000);
@@ -200,7 +213,7 @@ function render(controls) {
 }
 
 (async () => {
-  state = await Settings.load();
+  [state, debug] = await Promise.all([Settings.load(), isDevelopment()]);
   buildPresets();
   const controls = buildBands();
   render(controls);

@@ -24,7 +24,7 @@
       <h2>ノイズキャンセル</h2>
       <div class="segmented three" role="radiogroup" aria-label="ノイズキャンセル">
         <label title="かけない"><input type="radio" name="denoiseMode" value="off"><span>オフ</span></label>
-        <label title="話し声が主役のときだけかけ、音楽や歌のときは外す"><input type="radio" name="denoiseMode" value="auto"><span>オート</span></label>
+        <label title="ふだんはかけ、音楽や歌が続くときは外す"><input type="radio" name="denoiseMode" value="auto"><span>オート</span></label>
         <label title="いつもかける"><input type="radio" name="denoiseMode" value="on"><span>オン</span></label>
       </div>
     </div>
@@ -62,7 +62,7 @@
   </section>
 
   <section class="card eq">
-    <!-- EQ のゲインの決め方。オート（番組に合わせて自動）か、手動（プリセットとスライダー）のどちらか -->
+    <!-- EQ のゲインの決め方。オート（話し声が聞きやすいように、番組に合わせて自動）か、手動（プリセットとスライダー）のどちらか -->
     <div class="card-head">
       <span class="badge badge-eq" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M6 4v16M12 4v16M18 4v16"/><circle cx="6" cy="14" r="2.2"/><circle cx="12" cy="8" r="2.2"/><circle cx="18" cy="12" r="2.2"/></svg>
@@ -74,8 +74,8 @@
       </div>
     </div>
     <div class="auto-panel">
-      <p class="note">番組に合わせて、聞きやすい音のバランスに整えます</p>
-      <p class="status auto-note"></p>
+      <p class="note">話し声が聞きやすいように、番組に合わせて整えます</p>
+      <p class="status auto-note" hidden></p>
     </div>
     <div class="manual-panel">
       <select id="eqPreset" aria-label="プリセット"></select>
