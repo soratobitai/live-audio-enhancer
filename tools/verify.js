@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
+import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf, siteKeyOf } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION = process.env.EXTENSION_DIR ? path.resolve(process.env.EXTENSION_DIR) : path.join(ROOT, 'extension');
@@ -354,15 +354,17 @@ async function check(browser, extId, url) {
     for (let t = 0; t < 90 && !(await evaluate(contextId, '__audioFxLevel() > 0')); t += 2) await sleep(2000);
 
     popup = await browser.newPage();
-    await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
+    // 設定はサイトごと。ポップアップの画面はタブで開くので、どのサイトの設定を見るかを ?site= で渡す
+    const siteKey = siteKeyOf(url);
+    await popup.goto(`chrome-extension://${extId}/popup/popup.html?site=${siteKey}`);
     await popup.waitForSelector('.band input');
     // 開いたときに、保存されている設定どおりに表示されているか（プリセットの選択欄など）
-    const shown = await popup.evaluate(async () => {
-      const s = await Settings.load();
+    const shown = await popup.evaluate(async (key) => {
+      const s = await Settings.load(key);
       return document.getElementById('eqPreset').value === s.eqPreset
         && document.querySelector('input[name="eqMode"]:checked')?.value === (s.autoEq ? 'auto' : 'manual')
         && document.querySelector('input[name="denoiseMode"]:checked')?.value === (!s.denoise ? 'off' : s.denoiseAuto ? 'auto' : 'on');
-    });
+    }, siteKey);
     if (!shown) return { url, title, logs, video, fail: 'ポップアップを開いたときの表示が、保存されている設定と違う' };
     // プリセットのゲインは拡張の設定から取る（期待値に使う）
     const presets = await popup.evaluate(() => Object.fromEntries(Settings.PRESETS.map((p) => [p.id, p.gains])));

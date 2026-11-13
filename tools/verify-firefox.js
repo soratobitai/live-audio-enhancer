@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
+import { siteKeyOf, SITES, PICK_VIDEO, sleep, waitPlaying, findBroadcasts, siteOf } from './sites.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIREFOX = process.env.FIREFOX_PATH || 'C:/Program Files/Mozilla Firefox/firefox.exe';
@@ -27,11 +27,12 @@ const GAINS = [0, -6, 0, 0, 0, 0, 0, 4, 0, -3];
 // テスト用 content script を足した拡張のコピーを作る。
 // WebDriver BiDi では拡張の内部 URL（moz-extension://）を開けないので、
 // 拡張自身にポップアップの画面をタブで開かせるバックグラウンドスクリプトも足す
-function makeTestExtension() {
+function makeTestExtension(siteKey) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-fx-firefox-'));
   fs.cpSync(path.join(ROOT, 'extension'), dir, { recursive: true });
   fs.copyFileSync(path.join(ROOT, 'tools/firefox-probe.js'), path.join(dir, 'firefox-probe.js'));
-  fs.writeFileSync(path.join(dir, 'firefox-open-popup.js'), "browser.tabs.create({ url: browser.runtime.getURL('popup/popup.html') });\n");
+  // 設定はサイトごとなので、どのサイトの設定を見るかを ?site= で渡す
+  fs.writeFileSync(path.join(dir, 'firefox-open-popup.js'), `browser.tabs.create({ url: browser.runtime.getURL('popup/popup.html?site=${siteKey}') });\n`);
   const manifestPath = path.join(dir, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   manifest.content_scripts[0].js.push('firefox-probe.js');
@@ -144,7 +145,7 @@ async function check(browser, url) {
     let popup = null;
     for (const p of await browser.pages()) {
       const href = await p.evaluate(() => location.href).catch(() => '');
-      if (href.endsWith('/popup/popup.html')) popup = p;
+      if (href.includes('/popup/popup.html')) popup = p;
     }
     if (!popup) return { url, title, fail: 'ポップアップの画面が開かれていない' };
     // 内部扱いのタブは、前面に出すことも読み込み直すこともできないので、開いたままの画面を操作する
@@ -205,7 +206,7 @@ async function main() {
     console.error(`サイトか URL を指定してください: ${Object.keys(SITES).join(' / ')}`);
     return 1;
   }
-  const extension = makeTestExtension();
+  const extension = makeTestExtension(site ? args[0] : siteKeyOf(args[0]));
   const browser = await puppeteer.launch({
     browser: 'firefox',
     executablePath: FIREFOX,

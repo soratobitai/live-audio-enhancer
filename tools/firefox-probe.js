@@ -36,7 +36,7 @@ const PROBE_COMMANDS = {
     const g = await AudioGraph.attach(v);
     if (!g) return { attached: false };
     if (settings) {
-      await Settings.save({ ...Settings.defaults(), ...settings });
+      await Settings.save(Settings.siteOf(location.hostname), { ...Settings.defaults(), ...settings });
       await probeSleep(wait);
     }
     const ctx = g.source.context;

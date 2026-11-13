@@ -10,6 +10,7 @@
 - **音量をそろえる**：大きすぎる音を抑え、小さい声を持ち上げます（標準・強め）
 - **イコライザー**：10バンドと12種類のプリセット。「オート」にすると、番組の音を分析して、話し声が聞きやすいバランスに自動で整えます（音楽向けにしたいときは手動のプリセット）
 - **音割れ防止**：音を持ち上げても音割れしないよう、リミッターが働きます
+- **サイトごとの設定**：設定はサイトごとに保存します（ほかのサイトに同じ設定を使うこともできます）。「サイト」のタブで、サイトごとにオン・オフできます
 
 ## 対応サイト
 
@@ -65,4 +66,4 @@ MIT License（[extension/LICENSE](extension/LICENSE)）
 
 ## English
 
-Live Audio Enhancer is a browser extension (Chrome / Firefox) that makes the sound of live streams and videos easier to listen to, in real time: AI noise suppression (RNNoise / DeepFilterNet3, with an Auto mode that turns it off while music or singing continues), volume leveling, a 10-band equalizer with presets and an Auto mode tuned for speech, and a limiter. It works on niconico Live, YouTube, Twitch, Kick, TVer and ABEMA. The user interface is in Japanese. All processing happens locally; no data is collected or sent. Licensed under the MIT License.
+Live Audio Enhancer is a browser extension (Chrome / Firefox) that makes the sound of live streams and videos easier to listen to, in real time: AI noise suppression (RNNoise / DeepFilterNet3, with an Auto mode that turns it off while music or singing continues), volume leveling, a 10-band equalizer with presets and an Auto mode tuned for speech, and a limiter. Settings are saved per site, and each site can be turned on or off. It works on niconico Live, YouTube, Twitch, Kick, TVer and ABEMA. The user interface is in Japanese. All processing happens locally; no data is collected or sent. Licensed under the MIT License.

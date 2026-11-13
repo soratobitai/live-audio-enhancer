@@ -44,6 +44,9 @@ export const SITES = {
 // URL のサイト。URL を指定して検証するときも、サイトごとの手順（dismiss）を使うため
 export const siteOf = (url) => Object.values(SITES).find((s) => new URL(s.list).host === new URL(url).host);
 
+// URL のサイトの名前（nico など）。拡張の設定はサイトごとなので、ポップアップの画面を開くときに ?site= で渡す
+export const siteKeyOf = (url) => Object.keys(SITES).find((k) => SITES[k] === siteOf(url));
+
 // 判定に使う video 要素。広告用などの見えない要素を避けて、表示サイズがいちばん大きいものを選ぶ
 export const PICK_VIDEO = `[...document.querySelectorAll('video')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]`;
 

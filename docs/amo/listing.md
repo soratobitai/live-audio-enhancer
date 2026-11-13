@@ -56,7 +56,7 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 使い方
 1. 対応サイトで動画を再生します。
 2. ツールバーの Live Audio Enhancer のボタンを押して、使いたい機能を選びます。
-設定は、開いているすべての対応サイトに反映されます。「有効」をオフにすると、元の音に戻ります。
+設定はサイトごとに保存されます。「ほかのサイトにも使う」で、ほかのサイトにも同じ設定を使えます。「サイト」のタブで、サイトごとにオン・オフできます。オフにすると、元の音に戻ります。
 
 ■ ご注意
 ・ノイズキャンセルの「強め」は、パソコンへの負荷が高めで、音がわずかに遅れます。
@@ -90,7 +90,7 @@ niconico Live, YouTube, Twitch, Kick, TVer, ABEMA
 How to use
 1. Play a video on a supported site.
 2. Click the Live Audio Enhancer button in the toolbar and choose the features you want.
-Settings apply to all open supported sites. Turn off "有効" (Enabled) to hear the original sound.
+Settings are saved per site. Use "ほかのサイトにも使う" (use on other sites) to copy them to all sites. The "サイト" (Sites) tab turns each site on or off; when a site is off, you hear the original sound.
 
 Notes
 - The Strong noise suppression uses more CPU and adds a short delay.

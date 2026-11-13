@@ -44,7 +44,7 @@ p {
   margin: 0;
 }
 
-/* 見出し：アイコン・名前・全体の有効 */
+/* 見出し：アイコン・名前・設定 / サイトの切り替え */
 header {
   display: flex;
   align-items: center;
@@ -64,9 +64,106 @@ h1 {
   letter-spacing: 0.01em;
 }
 
+/* 設定 / サイトの切り替え。選んでいる方を塗りつぶす（ノイズキャンセルなどの切り替えと同じ形） */
+.tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.tabs button {
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(59, 108, 246, 0.35);
+}
+
+.tabs button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tabs button:focus-visible,
+.text-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 設定の一番上の行：サイト名、ほかのサイトにも使う、このサイトでのオン・オフ */
+.site-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 0 2px;
+}
+
+.site-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.text-button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.text-button:hover:enabled {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* もう一度押すと、ほかのサイトの設定を上書きする（押し間違いを防ぐため、1 回目は確かめる） */
+.text-button.confirm {
+  border-color: #f59e0b;
+  color: #b45309;
+}
+
+/* サイトごとのオン・オフの一覧 */
+.site-list {
+  margin-top: 6px;
+}
+
+.site-list .switch {
+  justify-content: space-between;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.site-list .current {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.unsupported {
+  margin: 8px 2px 0;
+}
+
 /* 機能ごとのカード */
 .card {
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 10px 12px 11px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -155,12 +252,11 @@ h2 {
   background: #f59e0b;
 }
 
-
 .status[hidden] {
   display: none;
 }
 
-/* スイッチ（全体の有効、音量をそろえる） */
+/* スイッチ（このサイトで有効、音量をそろえる、サイトの一覧） */
 .switch {
   display: flex;
   align-items: center;
@@ -351,7 +447,7 @@ select {
   grid-template-columns: 62px 1fr 50px;
   align-items: center;
   gap: 8px;
-  height: 17px;
+  height: 16px;
 }
 
 .band .name {
@@ -419,12 +515,12 @@ body:not(.off) .band input:disabled {
   --fill: #8b7cf0;
 }
 
-/* 全体を無効にしたときは、各カードをまとめて薄く表示し、操作できなくする */
-body.off .card {
+/* このサイトを無効にしたときは、設定のカードをまとめて薄く表示し、操作できなくする（サイトの一覧は薄くしない） */
+body.off #settingsView .card {
   opacity: 0.5;
 }
 
-body.off .card :is(label, input, select, button) {
+body.off #settingsView .card :is(label, input, select, button) {
   cursor: default;
 }
 

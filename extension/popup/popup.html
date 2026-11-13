@@ -9,11 +9,23 @@
   <header>
     <img class="logo" src="../icons/icon-32.png" width="22" height="22" alt="">
     <h1>Live Audio Enhancer</h1>
-    <label class="switch" title="オフにすると元の音に戻ります">
+    <!-- 設定（開いているタブのサイトの設定）と、サイト（サイトごとのオン・オフの一覧）の切り替え -->
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabSettings" aria-controls="settingsView">設定</button>
+      <button type="button" role="tab" id="tabSites" aria-controls="sitesView">サイト</button>
+    </div>
+  </header>
+
+  <main id="settingsView" role="tabpanel">
+  <!-- 設定は、開いているタブのサイトごとに持つ。この行のスイッチは、このサイトでのオン・オフ（「サイト」の一覧と同じ値） -->
+  <div class="site-bar">
+    <span class="site-name" id="siteName"></span>
+    <button type="button" id="copyToAll" class="text-button" title="このサイトの設定を、ほかのすべてのサイトにも使う（オン・オフは変えない）">ほかのサイトにも使う</button>
+    <label class="switch" title="オフにすると、このサイトでは元の音に戻ります">
       <span>有効</span>
       <input type="checkbox" role="switch" id="enabled">
     </label>
-  </header>
+  </div>
 
   <!-- 機能ごとにカードにまとめる。見出しの左のアイコンは、機能を見分けるための飾り -->
   <section class="card feature denoise">
@@ -85,6 +97,17 @@
     </div>
     <div id="bands"></div>
   </section>
+  </main>
+
+  <!-- サイトごとのオン・オフ。対応サイト以外のタブで開いたときは、こちらだけ使える -->
+  <main id="sitesView" role="tabpanel" hidden>
+    <section class="card">
+      <h2>サイトごとのオン・オフ</h2>
+      <p class="note">オフにしたサイトでは、音に何もしません</p>
+      <div id="siteList" class="site-list"></div>
+    </section>
+    <p class="note unsupported" id="unsupported" hidden>このタブは対応サイトではないので、設定は変えられません。</p>
+  </main>
 
   <script src="../shared/settings.js"></script>
   <script src="popup.js"></script>

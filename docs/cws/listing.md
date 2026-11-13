@@ -51,7 +51,7 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 使い方
 1. 対応サイトで動画を再生します。
 2. ツールバーの拡張機能のボタン（パズルのアイコン）から Live Audio Enhancer を開き、使いたい機能を選びます。ピン留めしておくと、すぐに開けます。
-設定は、開いているすべての対応サイトに反映されます。「有効」をオフにすると、元の音に戻ります。
+設定はサイトごとに保存されます。「ほかのサイトにも使う」で、ほかのサイトにも同じ設定を使えます。「サイト」のタブで、サイトごとにオン・オフできます。オフにすると、元の音に戻ります。
 
 ■ ご注意
 ・ノイズキャンセルの「強め」は、パソコンへの負荷が高めで、音がわずかに遅れます。
@@ -75,7 +75,7 @@ Live Audio Enhancer makes the sound of live streams and videos easier to listen 
 - Equalizer: 10 bands and 12 presets. In Auto mode, it balances the sound so that voices are easy to hear.
 - A limiter prevents clipping.
 
-Works on the six sites listed above. This is an unofficial extension, not affiliated with those sites.
+Works on the six sites listed above, with separate settings for each site; each site can be turned on or off. This is an unofficial extension, not affiliated with those sites.
 The user interface is in Japanese. All audio processing happens on your computer; no data is collected or sent.
 ```
 
@@ -96,10 +96,10 @@ Makes the audio of videos and live streams on supported sites easier to listen t
 **storage**
 
 ```
-Saves the user's settings (on/off, noise suppression mode and strength, leveler, equalizer mode and gains) with chrome.storage.local, so that they are kept and applied to all open supported tabs. Nothing is sent outside the browser.
+Saves the user's settings for each supported site (on/off, noise suppression mode and strength, leveler, equalizer mode and gains) with chrome.storage.local, so that they are kept and applied to the tabs of that site. Nothing is sent outside the browser.
 ```
 
-意味：設定（オン・オフ、ノイズキャンセルのモードと強さ、音量をそろえる、イコライザーのモードとゲイン）を保存し、開いているすべての対応サイトのタブに反映するため。ブラウザの外には送らない。
+意味：サイトごとの設定（オン・オフ、ノイズキャンセルのモードと強さ、音量をそろえる、イコライザーのモードとゲイン）を保存し、そのサイトのタブに反映するため。ブラウザの外には送らない。
 
 **ホスト権限（Host permission）**：content script を対応サイトで動かすため（欄が出たら入れる）
 
@@ -143,7 +143,7 @@ No account is needed. The UI is in Japanese.
 3. ノイズキャンセル (Noise suppression): オン (On) reduces background noise. オート (Auto) keeps it on and turns it off after music or singing continues for about 15 seconds; the line starting with "今：" shows the current state. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, about 70 ms latency).
 4. 音量をそろえる (Leveler): the switch evens out loud and quiet parts.
 5. イコライザー (Equalizer): オート (Auto) adjusts it automatically; 手動 (Manual) uses the presets and sliders.
-6. 有効 (Enabled), at the top, turns all effects off.
+6. Settings are saved per site. 有効 (Enabled) turns all effects off on the current site; the サイト (Sites) tab turns each site on or off.
 
 The WebAssembly files and the model in vendor/ are unmodified files from open-source npm packages: @sapphi-red/web-noise-suppressor 0.4.1 (RNNoise, MIT) and @workadventure/noise-suppression 0.2.0 (DeepFilterNet3, MIT). Their license files are included in vendor/. All first-party code is plain JavaScript without minification.
 ```

@@ -20,13 +20,15 @@ const SHOTS = [
   {
     file: '1-overview.png',
     title: '配信の音を、聞きやすく',
-    points: ['AIノイズキャンセル', '音量をそろえる', '10バンドのイコライザーと12のプリセット', 'ニコ生・YouTube・Twitch・Kick・TVer・ABEMA'],
+    points: ['AIノイズキャンセル', '音量をそろえる', '10バンドのイコライザーと12のプリセット', 'ニコ生・YouTube・Twitch・Kick・TVer・ABEMA', 'サイトごとに設定を保存'],
+    site: 'youtube',
     settings: { enabled: true, denoise: true, denoiseAuto: false, engine: 'rnnoise', leveler: true, levelerStrength: 'standard', autoEq: false, eqPreset: 'voice', gains: [-4, -3, -1, 0, 1, 2, 4, 4, 2, 0] },
   },
   {
     file: '2-auto.png',
     title: 'オートにおまかせ',
     points: ['ノイズキャンセルは、音楽や歌が続くと自動で外す', 'イコライザーは、話し声が聞きやすいように自動調整'],
+    site: 'twitch',
     settings: { enabled: true, denoise: true, denoiseAuto: true, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: true, eqPreset: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     // 配信につないだときの、オートEQ の補正量
     autoGains: [0, 0, 3.0, -4.1, -4.5, 0.3, 3.1, 5.7, 6.0, 0],
@@ -43,8 +45,9 @@ try {
     // ポップアップを、設定を入れた状態で開いて撮る（2 倍の解像度）
     const popup = await browser.newPage();
     await popup.setViewport({ width: POPUP_WIDTH, height: 620, deviceScaleFactor: 2 });
-    await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
-    await popup.evaluate((s) => chrome.storage.local.set({ settings: s }), shot.settings);
+    // 設定はサイトごと。すべてのサイトに同じ設定を入れ、shot.site のサイトの設定として開く
+    await popup.goto(`chrome-extension://${extId}/popup/popup.html?site=${shot.site}`);
+    await popup.evaluate((s) => Settings.saveAll(Object.fromEntries(Settings.SITES.map(({ id }) => [id, s]))), shot.settings);
     await popup.reload();
     await popup.waitForSelector('.band input');
     await new Promise((r) => setTimeout(r, 1500));

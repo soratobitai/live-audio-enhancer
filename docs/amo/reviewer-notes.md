@@ -19,7 +19,7 @@ HOW TO TEST (no account needed; the UI is in Japanese)
 3. ノイズキャンセル (Noise suppression): オフ/オート/オン = Off/Auto/On. Auto keeps it on and turns it off while music continues ("今：" shows the state). 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, ~70 ms latency).
 4. 音量をそろえる (Leveler): on/off switch.
 5. イコライザー (EQ): オート (Auto) or 手動 (Manual: presets and sliders).
-6. 有効 (Enabled), at the top, bypasses everything.
+6. Settings are per site. 有効 (Enabled) bypasses everything on this site; the サイト (Sites) tab turns each site on/off.
 Sites: live.nicovideo.jp, www.youtube.com, kick.com, www.twitch.tv, tver.jp, abema.tv (TVer/ABEMA: Japan only).
 
 SOURCE CODE

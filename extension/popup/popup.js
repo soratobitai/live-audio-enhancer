@@ -14,6 +14,14 @@ const eqModeInputs = document.querySelectorAll('input[name="eqMode"]');
 const autoNote = document.querySelector('.auto-note');
 const bandsSection = document.getElementById('bands');
 const resetButton = document.getElementById('reset');
+const tabSettings = document.getElementById('tabSettings');
+const tabSites = document.getElementById('tabSites');
+const settingsView = document.getElementById('settingsView');
+const sitesView = document.getElementById('sitesView');
+const siteName = document.getElementById('siteName');
+const copyButton = document.getElementById('copyToAll');
+const siteList = document.getElementById('siteList');
+const unsupportedNote = document.getElementById('unsupported');
 
 const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
@@ -25,7 +33,15 @@ const DENOISE_EXPLAIN = {
   on: 'いつもかけます。音楽では音が乱れることがあります',
 };
 
-let state;
+// 設定はサイトごと。all はすべてのサイトの設定、site は開いているタブのサイト（対応サイト以外なら null）、
+// state はそのサイトの設定（all[site] と同じもの）。書き換えたら all をまとめて保存する
+let all;
+let site = null;
+let state = null;
+let view = 'settings'; // 'settings'（このサイトの設定）/ 'sites'（サイトごとのオン・オフ）
+let siteSwitches = []; // サイトの一覧のスイッチ（Settings.SITES の順）
+let copyArmed = false; // 「ほかのサイトにも使う」を 1 回押して、確かめているあいだ
+let copyTimer = null; // 確かめる表示や、使ったことの表示を、元に戻すまでのタイマー
 // 開発中に読み込んだ拡張のときだけ、オートの状態（「今：〜」）を出す。ストアから入れた利用者には、判定の誤りを見せない
 let debug = false;
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
@@ -43,8 +59,24 @@ function paintFill(input) {
   input.style.setProperty('--b', `${Math.max(p, 50)}%`);
 }
 
-// ノイズキャンセルのオートが動いているか（全体が有効で、ノイズキャンセルがオート）
+// ノイズキャンセルのオートが動いているか（このサイトで有効で、ノイズキャンセルがオート）
 const denoiseAuto = () => state.enabled && state.denoise && state.denoiseAuto;
+
+const save = () => Settings.saveAll(all);
+
+// 開いているタブのサイト。タブの中の content script に聞く（権限を増やさずに済む）。
+// 検証ツールとスクリーンショットのツールは、ポップアップの画面をタブで開くので、?site=<id> で指定する
+async function currentSite() {
+  const param = new URLSearchParams(location.search).get('site');
+  if (param) return Settings.SITES.some(({ id }) => id === param) ? param : null;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return (await chrome.tabs.sendMessage(tab.id, { type: 'audio-fx:site' }))?.site ?? null;
+  } catch {
+    // 対応サイト以外のタブなど、content script がない
+    return null;
+  }
+}
 
 // 開発中に読み込んだ拡張か（Chrome の「パッケージ化されていない拡張機能」、Firefox の一時的なアドオン）。
 // management.getSelf は management の権限なしで使える。使えないときは、利用者向けとみなす
@@ -83,7 +115,7 @@ function buildBands() {
       presetSelect.value = 'custom';
       value.textContent = gainText(state.gains[i]);
       paintFill(input);
-      Settings.save(state);
+      save();
     });
     input.addEventListener('dblclick', () => {
       input.value = 0;
@@ -104,6 +136,40 @@ function buildPresets() {
   group.label = 'プリセット';
   for (const p of Settings.PRESETS) add(group, p.id, p.label);
   presetSelect.append(group);
+}
+
+// サイトごとのオン・オフの一覧を作る。開いているタブのサイトには「このタブ」と添える
+function buildSiteList() {
+  siteSwitches = Settings.SITES.map(({ id, label }) => {
+    const row = document.createElement('label');
+    row.className = 'switch';
+    const name = document.createElement('span');
+    name.textContent = label;
+    if (id === site) {
+      const current = document.createElement('span');
+      current.className = 'current';
+      current.textContent = 'このタブ';
+      name.append(current);
+    }
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.setAttribute('role', 'switch');
+    input.dataset.site = id;
+    row.append(name, input);
+    siteList.append(row);
+    return input;
+  });
+}
+
+// 設定 / サイトの切り替え。対応サイト以外のタブでは、設定は開けない
+function showView(next) {
+  view = site ? next : 'sites';
+  for (const [tab, panel, name] of [[tabSettings, settingsView, 'settings'], [tabSites, sitesView, 'sites']]) {
+    tab.setAttribute('aria-selected', String(view === name));
+    panel.hidden = view !== name;
+  }
+  tabSettings.disabled = !site;
+  unsupportedNote.hidden = !!site;
 }
 
 function showGains(controls, gains) {
@@ -152,9 +218,12 @@ async function showStatus(controls) {
 }
 
 function render(controls) {
+  Settings.SITES.forEach(({ id }, i) => { siteSwitches[i].checked = all[id].enabled; });
+  if (!state) return;
+  siteName.textContent = Settings.SITES.find(({ id }) => id === site).label;
   enabledInput.checked = state.enabled;
   document.body.classList.toggle('off', !state.enabled);
-  // 全体を無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
+  // このサイトを無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
   const off = !state.enabled;
 
   // ノイズキャンセル：オフ / オート（ふだんはかけ、音楽や歌が続くときは外す）/ オン
@@ -197,8 +266,9 @@ function render(controls) {
   if (!auto) showGains(controls, state.gains);
 
   // 問い合わせる内容（オートEQ、ノイズキャンセルのオート）が変わったときだけ、問い合わせを始め直す。
-  // ノイズキャンセルのオートの状態は、表示するとき（開発中）だけ問い合わせる
-  const want = [auto && 'auto-eq', debug && denoiseAuto() && 'denoise'].filter(Boolean).join(',');
+  // ノイズキャンセルのオートの状態は、表示するとき（開発中）だけ問い合わせる。サイトの一覧を見ているあいだは問い合わせない
+  const want = view !== 'settings' ? ''
+    : [auto && 'auto-eq', debug && denoiseAuto() && 'denoise'].filter(Boolean).join(',');
   if (want !== polling) {
     polling = want;
     statusGeneration += 1;
@@ -212,17 +282,52 @@ function render(controls) {
   }
 }
 
+// 「ほかのサイトにも使う」を、確かめる前の表示に戻す
+function resetCopyButton(text = 'ほかのサイトにも使う') {
+  clearTimeout(copyTimer);
+  copyTimer = null;
+  copyArmed = false;
+  copyButton.classList.remove('confirm');
+  copyButton.textContent = text;
+}
+
 (async () => {
-  [state, debug] = await Promise.all([Settings.load(), isDevelopment()]);
+  [all, site, debug] = await Promise.all([Settings.loadAll(), currentSite(), isDevelopment()]);
+  state = site ? all[site] : null;
   buildPresets();
   const controls = buildBands();
+  buildSiteList();
+  showView('settings');
   render(controls);
 
   const change = (update) => {
     update();
     render(controls);
-    Settings.save(state);
+    save();
   };
+  tabSettings.addEventListener('click', () => { showView('settings'); render(controls); });
+  tabSites.addEventListener('click', () => { showView('sites'); render(controls); });
+  for (const input of siteSwitches) {
+    input.addEventListener('change', () => change(() => { all[input.dataset.site].enabled = input.checked; }));
+  }
+  // このサイトの設定を、ほかのすべてのサイトにも使う（各サイトのオン・オフは変えない）。
+  // ほかのサイトの設定を上書きするので、1 回目は確かめ、4 秒以内にもう一度押したときだけ使う
+  copyButton.addEventListener('click', () => {
+    if (!copyArmed) {
+      resetCopyButton();
+      copyArmed = true;
+      copyButton.classList.add('confirm');
+      copyButton.textContent = 'もう一度押すと上書き';
+      copyTimer = setTimeout(() => resetCopyButton(), 4000);
+      return;
+    }
+    for (const { id } of Settings.SITES) {
+      if (id !== site) all[id] = { ...JSON.parse(JSON.stringify(state)), enabled: all[id].enabled };
+    }
+    save();
+    resetCopyButton('ほかのサイトにも使いました');
+    copyTimer = setTimeout(() => resetCopyButton(), 2000);
+  });
   enabledInput.addEventListener('change', () => change(() => { state.enabled = enabledInput.checked; }));
   for (const input of denoiseModeInputs) {
     input.addEventListener('change', () => change(() => {

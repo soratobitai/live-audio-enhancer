@@ -2,7 +2,10 @@
 
 // 再生中で音の出ている video 要素を音声グラフに接続する。
 // 接続すると元に戻せないので、無効のあいだは接続しない。有効になった時点で再生中の要素を接続する。
+// 設定はサイトごと（このページのサイトの設定を使う）。サイトをオフにしているときは、無効と同じく何もしない
+const SITE = Settings.siteOf(location.hostname);
 let enabled = false;
+let current = null; // 今使っている設定（JSON）。ほかのサイトの設定だけが変わったときは、反映し直さない
 
 // ミュート（または音量 0）の動画にはつながない。YouTube のサムネイルにマウスを乗せたときのプレビューなど、
 // 音を出さない動画にノイズキャンセルなどを動かさないため。ミュートを解除したときにつなぐ（Kick はミュートで自動再生される）
@@ -23,15 +26,19 @@ for (const type of ['playing', 'volumechange']) {
 }
 
 function applySettings(s) {
+  const json = JSON.stringify(s);
+  if (json === current) return;
+  current = json;
   AudioGraph.update(s);
   enabled = s.enabled;
   if (enabled) attachPlaying();
 }
 
-Settings.onChange(applySettings);
-Settings.load().then(applySettings);
+Settings.onChange(SITE, applySettings);
+Settings.load(SITE).then(applySettings);
 
-// ポップアップから、オートEQ の補正量などの状態を問い合わせられる
+// ポップアップから、このタブのサイトや、オートEQ の補正量などの状態を問い合わせられる
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'audio-fx:site') sendResponse({ site: SITE });
   if (message?.type === 'audio-fx:status') sendResponse(AudioGraph.status());
 });

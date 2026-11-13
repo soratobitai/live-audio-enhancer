@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Live Audio Enhancer",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "配信の音を聞きやすくします。AIノイズキャンセル、音量をそろえる、イコライザー（オート）",
   "icons": {
     "16": "icons/icon-16.png",
