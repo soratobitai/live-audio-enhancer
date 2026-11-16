@@ -107,10 +107,10 @@ Libraries
 
 ## スクリーンショット（`docs/amo/screenshots/`、1280×800）
 
-| ファイル | 説明（Caption） |
-|---|---|
-| `1-overview.png` | ノイズキャンセル、音量をそろえる、イコライザーを1つの画面で設定できます |
-| `2-sites.png` | 設定はサイトごとに保存されます。ライブ配信とテレビ番組で使い分けられます |
-| `3-auto-eq.png` | イコライザーのオートなら、話し声が聞きやすいように番組に合わせて整えます |
+| ファイル | 説明（Caption、日本語） | 説明（Caption、English） |
+|---|---|---|
+| `1-overview.png` | ノイズキャンセル、音量をそろえる、イコライザーを1つの画面で設定できます | Set up noise suppression, volume leveling and the equalizer in one popup |
+| `2-sites.png` | 設定はサイトごとに保存されます。ライブ配信とテレビ番組で使い分けられます | Settings are saved per site, so live streams and TV programs can be set up differently |
+| `3-auto-eq.png` | イコライザーのオートなら、話し声が聞きやすいように番組に合わせて整えます | Auto EQ balances the sound of each program so that voices are easy to hear |
 
-UI を変えたら `npm run amo:screenshots` で作り直す。
+UI を変えたら `npm run amo:screenshots` で作り直し、`npm run listing:firefox -- apply` でストアのページに載せる。

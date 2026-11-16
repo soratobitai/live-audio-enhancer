@@ -14,6 +14,7 @@
     "icons": "node tools/icons.js",
     "pack:firefox": "node tools/firefox.js pack",
     "release:firefox": "node tools/firefox.js release",
+    "listing:firefox": "node tools/amo-listing.js",
     "pack:chrome": "node tools/chrome.js",
     "amo:screenshots": "node tools/amo-screenshots.js",
     "cws:images": "node tools/cws-images.js"
