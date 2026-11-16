@@ -59,11 +59,12 @@ const Settings = (() => {
   const EQ_MODES = Object.freeze(['custom', ...PRESETS.map((p) => p.id)]);
 
   // ノイズキャンセルは声向けで、音楽の音質を落とすことがあるので既定ではオフにする。
-  // オートEQ がオンのあいだは、eqPreset と gains（手動の EQ）は使わずに残しておき、オフに戻すとそれを使う
+  // EQ は eq でオン・オフし、オンのときは autoEq でオートか手動かを選ぶ。
+  // オフやオートのあいだは、eqPreset と gains（手動の EQ）は使わずに残しておき、手動に戻すとそれを使う
   function defaults() {
     return {
-      enabled: true, denoise: false, denoiseAuto: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
-      autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0),
+      enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
+      eq: true, autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0),
     };
   }
 
@@ -90,13 +91,15 @@ const Settings = (() => {
     const preset = PRESETS.find((p) => p.id === eqPreset);
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
+      // v0.19〜v0.24 にあったノイズキャンセルのオート（denoiseAuto）は、なくした。オートはノイズキャンセルがオンのときだけ
+      // 選べたので、オートにしていた設定は denoise がオンのまま残り、「オン」として引き継がれる
       denoise: typeof v.denoise === 'boolean' ? v.denoise : d.denoise,
-      // ノイズキャンセルのオート（ふだんはかけ、音楽や歌が続くときは外す）。denoise がオンのときだけ意味を持つ
-      denoiseAuto: typeof v.denoiseAuto === 'boolean' ? v.denoiseAuto : d.denoiseAuto,
       engine: ENGINES.includes(v.engine) ? v.engine : d.engine,
       leveler: typeof v.leveler === 'boolean' ? v.leveler : legacyLeveler !== null,
       levelerStrength: STRENGTHS.includes(v.levelerStrength) ? v.levelerStrength
         : legacyLeveler === 'strong' ? 'strong' : d.levelerStrength,
+      // EQ のオン・オフ（v0.25.0 から）。それまでの設定は、オンとして引き継ぐ
+      eq: typeof v.eq === 'boolean' ? v.eq : d.eq,
       autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
       eqPreset,
       gains: preset ? [...preset.gains] : gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),

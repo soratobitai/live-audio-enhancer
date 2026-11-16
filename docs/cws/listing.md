@@ -18,7 +18,7 @@
 | カテゴリ | エンターテインメント（Entertainment）。次点はツール（Tools） |
 | 言語 | 日本語 |
 | ストアのアイコン（128×128） | `docs/cws/store-icon-128.png`（ストアの案内どおり、絵柄 96×96 と透明な余白 16px） |
-| スクリーンショット（1280×800） | `docs/amo/screenshots/1-overview.png`、`2-auto.png`（Firefox のストアと同じ） |
+| スクリーンショット（1280×800） | `docs/amo/screenshots/1-overview.png`、`2-sites.png`、`3-auto-eq.png`（Firefox のストアと同じ。説明は `docs/amo/listing.md`） |
 | 小さいプロモーション タイル（440×280） | `docs/cws/promo-small.png`（任意だが、ないと検索結果で後ろに並ぶ） |
 | マーキー プロモーション タイル（1400×560） | なし（任意） |
 | 公式 URL・ホームページ・サポート URL | なし |
@@ -35,7 +35,7 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 主な機能
 ・AIノイズキャンセル
 　エアコンやキーボードの音、環境音など、声以外の雑音を抑えます。「標準」（軽い）と「強め」（雑音をより強く抑える）から選べます。
-　「オート」にすると、ふだんはかけ、音楽や歌が続くときは自動で外します（外れるまで15秒ほどかかります）。
+　歌や音楽では音が乱れることがあるので、歌枠などではオフにしてください。設定はサイトごとに保存されます。
 ・音量をそろえる
 　大きすぎる声やBGMは抑え、小さい声は持ち上げて、聞きやすい音量にそろえます（標準・強め）。
 ・イコライザー
@@ -70,7 +70,7 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 [English]
 Live Audio Enhancer makes the sound of live streams and videos easier to listen to, in real time.
 
-- AI noise suppression: reduces background noise. Standard (light) or Strong. In Auto mode, it stays on and is turned off while music or singing continues.
+- AI noise suppression: reduces background noise. Standard (light) or Strong. Turn it off for singing and music.
 - Volume leveling: tames loud parts and lifts quiet voices (Standard / Strong).
 - Equalizer: 10 bands and 12 presets. In Auto mode, it balances the sound so that voices are easy to hear.
 - A limiter prevents clipping.
@@ -96,10 +96,10 @@ Makes the audio of videos and live streams on supported sites easier to listen t
 **storage**
 
 ```
-Saves the user's settings for each supported site (on/off, noise suppression mode and strength, leveler, equalizer mode and gains) with chrome.storage.local, so that they are kept and applied to the tabs of that site. Nothing is sent outside the browser.
+Saves the user's settings for each supported site (on/off, noise suppression on/off and strength, leveler, equalizer mode and gains) with chrome.storage.local, so that they are kept and applied to the tabs of that site. Nothing is sent outside the browser.
 ```
 
-意味：サイトごとの設定（オン・オフ、ノイズキャンセルのモードと強さ、音量をそろえる、イコライザーのモードとゲイン）を保存し、そのサイトのタブに反映するため。ブラウザの外には送らない。
+意味：サイトごとの設定（オン・オフ、ノイズキャンセルのオン・オフと強さ、音量をそろえる、イコライザーのモードとゲイン）を保存し、そのサイトのタブに反映するため。ブラウザの外には送らない。
 
 **ホスト権限（Host permission）**：content script を対応サイトで動かすため（欄が出たら入れる）
 
@@ -140,9 +140,9 @@ The content script runs only on the six supported video sites (live.nicovideo.jp
 No account is needed. The UI is in Japanese.
 1. Open a YouTube or Twitch video with people talking and play it with sound. Muted videos are processed after unmuting.
 2. Open the Live Audio Enhancer popup from the toolbar.
-3. ノイズキャンセル (Noise suppression): オン (On) reduces background noise. オート (Auto) keeps it on and turns it off after music or singing continues for about 15 seconds; the line starting with "今：" shows the current state. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, about 70 ms latency).
+3. ノイズキャンセル (Noise suppression): the switch reduces background noise. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, about 70 ms latency).
 4. 音量をそろえる (Leveler): the switch evens out loud and quiet parts.
-5. イコライザー (Equalizer): オート (Auto) adjusts it automatically; 手動 (Manual) uses the presets and sliders.
+5. イコライザー (Equalizer): オフ (Off) bypasses it; オート (Auto) adjusts it automatically; 手動 (Manual) uses the presets and sliders.
 6. Settings are saved per site. 有効 (Enabled) turns all effects off on the current site; the サイト (Sites) tab turns each site on or off.
 
 The WebAssembly files and the model in vendor/ are unmodified files from open-source npm packages: @sapphi-red/web-noise-suppressor 0.4.1 (RNNoise, MIT) and @workadventure/noise-suppression 0.2.0 (DeepFilterNet3, MIT). Their license files are included in vendor/. All first-party code is plain JavaScript without minification.

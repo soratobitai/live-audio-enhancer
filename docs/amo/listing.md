@@ -22,13 +22,13 @@ Developer Hub の各欄に、そのまま貼り付けて使う。日本語を既
 ### 日本語
 
 ```
-ニコ生・YouTube・Twitch・TVer・ABEMAなどの配信の音を聞きやすくします。AIノイズキャンセル（音楽や歌が続くと自動で外すオートつき）、音量をそろえる、話し声が聞きやすいように自動で整えるイコライザー。
+ニコ生・YouTube・Twitch・TVer・ABEMAなどの配信の音を聞きやすくします。AIノイズキャンセル、音量をそろえる、話し声が聞きやすいように自動で整えるイコライザー。
 ```
 
 ### English
 
 ```
-Make live streams easier to listen to: AI noise suppression (Auto turns it off while music or singing continues), loudness leveling, and an equalizer that automatically makes voices easier to hear. Works on YouTube, Twitch, Kick, niconico, TVer and ABEMA.
+Make live streams easier to listen to: AI noise suppression, loudness leveling, and an equalizer that automatically makes voices easier to hear. Works on YouTube, Twitch, Kick, niconico, TVer and ABEMA.
 ```
 
 ## 説明（Description、15,000 文字まで）
@@ -41,7 +41,7 @@ Live Audio Enhancer は、配信や動画の音を、その場で（リアルタ
 ■ 主な機能
 ・AIノイズキャンセル
 　エアコンやキーボードの音、環境音など、声以外の雑音を抑えます。「標準」（軽い）と「強め」（雑音をより強く抑える）から選べます。
-　「オート」にすると、ふだんはかけ、音楽や歌が続くときは自動で外します（外れるまで15秒ほどかかります）。
+　歌や音楽では音が乱れることがあるので、歌枠などではオフにしてください。設定はサイトごとに保存されます。
 ・音量をそろえる
 　大きすぎる声やBGMは抑え、小さい声は持ち上げて、聞きやすい音量にそろえます（標準・強め）。
 ・イコライザー
@@ -78,7 +78,7 @@ Live Audio Enhancer makes the sound of live streams and videos easier to listen 
 
 Features
 - AI noise suppression: reduces background noise such as air conditioners, keyboards and room noise. Choose Standard (light) or Strong (stronger suppression).
-  In Auto mode, it stays on and is turned off automatically while music or singing continues (it takes about 15 seconds).
+  It can distort singing and music, so turn it off for music streams. Settings are saved per site.
 - Loudness leveling: tames loud voices and music and lifts quiet voices (Standard / Strong).
 - Equalizer: 10 bands and 12 presets (voice clarity, news, talk, music, movie, game commentary, quiet listening at night, and more).
   In Auto mode, it analyzes the program and balances the sound so that voices are easy to hear. For music, choose a preset manually.
@@ -110,6 +110,7 @@ Libraries
 | ファイル | 説明（Caption） |
 |---|---|
 | `1-overview.png` | ノイズキャンセル、音量をそろえる、イコライザーを1つの画面で設定できます |
-| `2-auto.png` | オートなら、ノイズキャンセルは音楽や歌が続くと自動で外し、イコライザーは話し声が聞きやすいように自動で整えます |
+| `2-sites.png` | 設定はサイトごとに保存されます。ライブ配信とテレビ番組で使い分けられます |
+| `3-auto-eq.png` | イコライザーのオートなら、話し声が聞きやすいように番組に合わせて整えます |
 
 UI を変えたら `npm run amo:screenshots` で作り直す。

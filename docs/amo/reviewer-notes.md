@@ -16,9 +16,9 @@ Applies noise suppression (RNNoise or DeepFilterNet3), a leveler, a 10-band EQ w
 HOW TO TEST (no account needed; the UI is in Japanese)
 1. Play a YouTube or Twitch video with talking, unmuted (muted videos are processed after unmuting).
 2. Click the toolbar button.
-3. ノイズキャンセル (Noise suppression): オフ/オート/オン = Off/Auto/On. Auto keeps it on and turns it off while music continues ("今：" shows the state). 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, ~70 ms latency).
+3. ノイズキャンセル (Noise suppression): on/off switch. 標準 (Standard) = RNNoise, 強め (Strong) = DeepFilterNet3 (more CPU, ~70 ms latency).
 4. 音量をそろえる (Leveler): on/off switch.
-5. イコライザー (EQ): オート (Auto) or 手動 (Manual: presets and sliders).
+5. イコライザー (EQ): オフ / オート / 手動 = Off / Auto / Manual (presets and sliders).
 6. Settings are per site. 有効 (Enabled) bypasses everything on this site; the サイト (Sites) tab turns each site on/off.
 Sites: live.nicovideo.jp, www.youtube.com, kick.com, www.twitch.tv, tver.jp, abema.tv (TVer/ABEMA: Japan only).
 

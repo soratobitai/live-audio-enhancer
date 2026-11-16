@@ -64,7 +64,7 @@ h1 {
   letter-spacing: 0.01em;
 }
 
-/* 設定 / サイトの切り替え。選んでいる方を塗りつぶす（ノイズキャンセルなどの切り替えと同じ形） */
+/* 設定 / サイトの切り替え。選んでいる方を塗りつぶす（イコライザーのオフ / オート / 手動と同じ形） */
 .tabs {
   display: inline-flex;
   padding: 2px;
@@ -244,19 +244,15 @@ h2 {
   background: var(--muted);
 }
 
-.status[data-state="speech"]::before {
+.status[data-state="ready"]::before {
   background: #22c55e;
-}
-
-.status[data-state="other"]::before {
-  background: #f59e0b;
 }
 
 .status[hidden] {
   display: none;
 }
 
-/* スイッチ（このサイトで有効、音量をそろえる、サイトの一覧） */
+/* スイッチ（このサイトで有効、ノイズキャンセル、音量をそろえる、サイトの一覧） */
 .switch {
   display: flex;
   align-items: center;
@@ -304,7 +300,7 @@ h2 {
   outline-offset: 2px;
 }
 
-/* 2つか3つから選ぶ切り替え（ノイズキャンセルのオフ / オート / オン、イコライザーのオート / 手動）。
+/* 3つから選ぶ切り替え（イコライザーのオフ / オート / 手動）。
    ラジオボタン自体は隠し、選んでいる側を塗りつぶす */
 .segmented {
   display: inline-flex;
@@ -332,10 +328,6 @@ h2 {
   font-size: 12px;
   font-weight: 600;
   transition: background 0.15s, color 0.15s;
-}
-
-.segmented.three span {
-  padding: 3px 9px;
 }
 
 .segmented input:checked + span {
@@ -385,7 +377,10 @@ h2 {
   opacity: 0.5;
 }
 
-/* イコライザー：オートのときは説明と状態、手動のときはプリセットと「フラットに戻す」を出す */
+/* イコライザー：オフのときは説明だけ、オートのときは説明と状態、手動のときはプリセットと「フラットに戻す」を出す。
+   オフのときはスライダーも隠す（手動の値は残しておく） */
+body.eq-off :is(.auto-panel, .manual-panel, #bands),
+body:not(.eq-off) .off-panel,
 body.auto .manual-panel,
 body:not(.auto) .auto-panel {
   display: none;

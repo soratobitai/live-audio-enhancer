@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Live Audio Enhancer",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "配信の音を聞きやすくします。AIノイズキャンセル、音量をそろえる、イコライザー（オート）",
   "icons": {
     "16": "icons/icon-16.png",
@@ -28,7 +28,7 @@
         "https://tver.jp/*",
         "https://abema.tv/*"
       ],
-      "js": ["shared/settings.js", "audio/auto-eq.js", "audio/speech-judge.js", "audio/audio-graph.js", "content/main.js"],
+      "js": ["shared/settings.js", "audio/auto-eq.js", "audio/audio-graph.js", "content/main.js"],
       "run_at": "document_idle"
     }
   ],

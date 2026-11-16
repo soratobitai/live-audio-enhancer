@@ -2,10 +2,8 @@
 
 const enabledInput = document.getElementById('enabled');
 const denoiseSection = document.querySelector('.denoise');
-const denoiseModeInputs = document.querySelectorAll('input[name="denoiseMode"]');
+const denoiseInput = document.getElementById('denoise');
 const engineInputs = document.querySelectorAll('input[name="engine"]');
-const denoiseNote = document.querySelector('.denoise-note');
-const denoiseExplain = document.querySelector('.denoise-explain');
 const levelerSection = document.querySelector('.leveler');
 const levelerInput = document.getElementById('leveler');
 const levelerStrengthInputs = document.querySelectorAll('input[name="levelerStrength"]');
@@ -26,12 +24,6 @@ const unsupportedNote = document.getElementById('unsupported');
 const SUFFIX = { lowshelf: ' 以下', highshelf: ' 以上' };
 const freqText = (hz) => (hz >= 1000 ? `${hz / 1000}kHz` : `${hz}Hz`);
 const gainText = (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
-// ノイズキャンセルの説明。選んでいるモードがどういう意味かを出す
-const DENOISE_EXPLAIN = {
-  off: 'かけません。オンにすると、声以外の音を抑えます',
-  auto: 'ふだんはかけ、音楽や歌が続くときは外します',
-  on: 'いつもかけます。音楽では音が乱れることがあります',
-};
 
 // 設定はサイトごと。all はすべてのサイトの設定、site は開いているタブのサイト（対応サイト以外なら null）、
 // state はそのサイトの設定（all[site] と同じもの）。書き換えたら all をまとめて保存する
@@ -45,7 +37,7 @@ let copyTimer = null; // 確かめる表示や、使ったことの表示を、�
 // 開発中に読み込んだ拡張のときだけ、オートの状態（「今：〜」）を出す。ストアから入れた利用者には、判定の誤りを見せない
 let debug = false;
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
-// 状態の問い合わせ（オートEQ の補正量、ノイズキャンセルのオートの判定）
+// 状態の問い合わせ（オートEQ の補正量）
 let statusTimer = null;
 let polling = null; // 何を問い合わせているか。変わったときだけ問い合わせを始め直す
 let statusGeneration = 0; // 問い合わせを始め直すたびに増やす。手動に切り替えたあとなどに届いた返事を捨てるため
@@ -58,9 +50,6 @@ function paintFill(input) {
   input.style.setProperty('--a', `${Math.min(p, 50)}%`);
   input.style.setProperty('--b', `${Math.max(p, 50)}%`);
 }
-
-// ノイズキャンセルのオートが動いているか（このサイトで有効で、ノイズキャンセルがオート）
-const denoiseAuto = () => state.enabled && state.denoise && state.denoiseAuto;
 
 const save = () => Settings.saveAll(all);
 
@@ -180,7 +169,7 @@ function showGains(controls, gains) {
   });
 }
 
-// オートEQ の補正量と、ノイズキャンセルのオートの判定を、表示しているタブの content script に問い合わせて表示する
+// オートEQ の補正量を、表示しているタブの content script に問い合わせて表示する
 async function showStatus(controls) {
   const generation = statusGeneration;
   const asked = ++statusAsked;
@@ -198,23 +187,15 @@ async function showStatus(controls) {
   statusReplied = asked;
   const connected = usable && status?.connected;
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
-  if (state.autoEq && debug) {
+  const autoOn = state.eq && state.autoEq;
+  if (autoOn && debug) {
     const ready = connected && status.autoEq?.ready;
-    autoNote.dataset.state = ready ? 'speech' : 'wait';
+    autoNote.dataset.state = ready ? 'ready' : 'wait';
     autoNote.textContent = !connected ? notConnected
       : !ready ? '今：番組の音を分析しています…'
       : '今：番組に合わせて調整しています';
   }
-  if (state.autoEq && status?.autoEq) showGains(controls, status.autoEq.gains);
-  if (debug && denoiseAuto()) {
-    const judged = status?.judge?.state;
-    // 判定はノイズキャンセルの準備ができてから始まる（準備中は judge がない）
-    denoiseNote.dataset.state = connected ? judged ?? 'wait' : 'wait';
-    denoiseNote.textContent = !connected ? notConnected
-      : judged === 'speech' ? '今：かけています'
-      : judged === 'other' ? '今：音楽や歌が続いているので、外しています'
-      : '今：準備しています…';
-  }
+  if (autoOn && status?.autoEq) showGains(controls, status.autoEq.gains);
 }
 
 function render(controls) {
@@ -226,13 +207,10 @@ function render(controls) {
   // このサイトを無効にしているあいだは、「有効」のスイッチ以外は操作できない（無効のあいだは変えても音が変わらないため）
   const off = !state.enabled;
 
-  // ノイズキャンセル：オフ / オート（ふだんはかけ、音楽や歌が続くときは外す）/ オン
-  const denoiseMode = !state.denoise ? 'off' : state.denoiseAuto ? 'auto' : 'on';
-  for (const input of denoiseModeInputs) input.checked = input.value === denoiseMode;
-  denoiseExplain.textContent = DENOISE_EXPLAIN[denoiseMode];
+  // ノイズキャンセル：オン・オフと強さ（標準 / 強め）。v0.24 までは、オフ / オート / オン の切り替えだった
+  denoiseInput.checked = state.denoise;
   for (const input of engineInputs) input.checked = input.value === state.engine;
   denoiseSection.classList.toggle('on', state.denoise);
-  denoiseNote.hidden = !(debug && denoiseAuto());
   autoNote.hidden = !debug;
 
   // 音量をそろえる：オン・オフと強さ
@@ -241,19 +219,22 @@ function render(controls) {
   levelerSection.classList.toggle('on', state.leveler);
 
   presetSelect.value = state.eqPreset;
-  for (const input of eqModeInputs) input.checked = input.value === (state.autoEq ? 'auto' : 'manual');
-  for (const input of [...denoiseModeInputs, ...engineInputs, levelerInput, ...levelerStrengthInputs, ...eqModeInputs]) {
+  const eqMode = !state.eq ? 'off' : state.autoEq ? 'auto' : 'manual';
+  for (const input of eqModeInputs) input.checked = input.value === eqMode;
+  for (const input of [denoiseInput, ...engineInputs, levelerInput, ...levelerStrengthInputs, ...eqModeInputs]) {
     input.disabled = off;
   }
 
-  // EQ はオートか手動のどちらか。オートのあいだは、手動の EQ（プリセット・フラットに戻す）は隠し、
-  // スライダーは動かせないようにして、自動で決めた補正量を表示する。手動に戻すと、手動の EQ の値に戻る
-  const auto = state.autoEq;
+  // EQ はオフ・オート・手動のどれか。オートのあいだは、手動の EQ（プリセット・フラットに戻す）は隠し、
+  // スライダーは動かせないようにして、自動で決めた補正量を表示する。オフのあいだは、どちらも隠す。手動に戻すと、手動の EQ の値に戻る
+  const auto = eqMode === 'auto';
+  const manual = eqMode === 'manual';
   document.body.classList.toggle('auto', auto);
-  presetSelect.disabled = off || auto;
-  resetButton.disabled = off || auto;
+  document.body.classList.toggle('eq-off', eqMode === 'off');
+  presetSelect.disabled = off || !manual;
+  resetButton.disabled = off || !manual;
   for (const { input } of controls) {
-    input.disabled = off || auto;
+    input.disabled = off || !manual;
     // オートの補正量は 0.1dB 刻みなので、スライダーのつまみも同じ刻みで表示する（手動では 0.5dB 刻みで動かす）
     input.step = auto ? 0.1 : 0.5;
   }
@@ -265,16 +246,14 @@ function render(controls) {
   }
   if (!auto) showGains(controls, state.gains);
 
-  // 問い合わせる内容（オートEQ、ノイズキャンセルのオート）が変わったときだけ、問い合わせを始め直す。
-  // ノイズキャンセルのオートの状態は、表示するとき（開発中）だけ問い合わせる。サイトの一覧を見ているあいだは問い合わせない
-  const want = view !== 'settings' ? ''
-    : [auto && 'auto-eq', debug && denoiseAuto() && 'denoise'].filter(Boolean).join(',');
+  // オートEQ のときだけ、補正量を問い合わせる。オートと手動を切り替えたときだけ、問い合わせを始め直す。
+  // サイトの一覧を見ているあいだは問い合わせない
+  const want = view === 'settings' && auto ? 'auto-eq' : '';
   if (want !== polling) {
     polling = want;
     statusGeneration += 1;
     clearInterval(statusTimer);
     statusTimer = null;
-    if (debug && denoiseAuto()) denoiseNote.textContent = '今：準備しています…';
     if (want) {
       showStatus(controls);
       statusTimer = setInterval(() => showStatus(controls), 1000);
@@ -329,18 +308,19 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
     copyTimer = setTimeout(() => resetCopyButton(), 2000);
   });
   enabledInput.addEventListener('change', () => change(() => { state.enabled = enabledInput.checked; }));
-  for (const input of denoiseModeInputs) {
-    input.addEventListener('change', () => change(() => {
-      state.denoise = input.value !== 'off';
-      if (state.denoise) state.denoiseAuto = input.value === 'auto';
-    }));
-  }
+  denoiseInput.addEventListener('change', () => change(() => { state.denoise = denoiseInput.checked; }));
   for (const input of engineInputs) input.addEventListener('change', () => change(() => { state.engine = input.value; }));
   levelerInput.addEventListener('change', () => change(() => { state.leveler = levelerInput.checked; }));
   for (const input of levelerStrengthInputs) {
     input.addEventListener('change', () => change(() => { state.levelerStrength = input.value; }));
   }
-  for (const input of eqModeInputs) input.addEventListener('change', () => change(() => { state.autoEq = input.value === 'auto'; }));
+  // オフにしても、オートか手動かは残す（オフのあとは、押した方になる）
+  for (const input of eqModeInputs) {
+    input.addEventListener('change', () => change(() => {
+      state.eq = input.value !== 'off';
+      if (state.eq) state.autoEq = input.value === 'auto';
+    }));
+  }
   // プリセットを選んだら、その値をゲインに入れる。カスタムは、手動のゲインをそのまま残す
   presetSelect.addEventListener('change', () => change(() => {
     state.eqPreset = presetSelect.value;

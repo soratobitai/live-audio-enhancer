@@ -244,21 +244,6 @@ const AudioGraph = (() => {
 
   // 使わなくなった方式は、出力をフェードアウトしてから止める（裏で処理し続けて CPU を使わないように）。
   // もう一度選ばれたときは作り直す（WASM やモデルは読み込み済みなので速い）
-  // ノイズキャンセルのオートの判定（SpeechJudge）を、オートのときだけ動かす。
-  // 判定には、使っているノイズキャンセルのノードの出口を使う（engineNode。準備中は null）。
-  // 方式を切り替えたときは、新しいノードで判定し直す。判定が変わったら設定を反映し直す（ノイズキャンセルのかけ外し）。
-  // v0.22 までは、オートEQ でも目安の形を切り替えるのに使い、ノイズキャンセルがオフなら判定のためだけに RNNoise を動かしていた
-  function applyJudge(g, engineNode) {
-    const node = settings.enabled && settings.denoise && settings.denoiseAuto ? engineNode : null;
-    if (g.judge && g.judge.node !== node) {
-      g.judge.stop();
-      g.judge = null;
-    }
-    if (node && !g.judge) {
-      g.judge = SpeechJudge.create(g.source.context, g.source, node, () => apply(g, true));
-      g.judge.node = node;
-    }
-  }
 
   function stopEngine(g, name) {
     const engine = g.engines[name];
@@ -311,7 +296,6 @@ const AudioGraph = (() => {
     // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
     return {
       element, source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, volume, engines: {}, auto: null,
-      judge: null,
     };
   }
 
@@ -328,12 +312,14 @@ const AudioGraph = (() => {
     }
   }
 
-  // EQ のゲインを決める。オートEQ のときは分析した結果を、それ以外は設定のゲイン（手動かプリセット）を使う
+  // EQ のゲインを決める。オートEQ のときは分析した結果を、手動のときは設定のゲイン（手動かプリセット）を使う。
+  // オフのときは、すべての帯域を 0dB にする（ピーキング・シェルビングのフィルタは、0dB なら音を変えない）
   function applyEq(g, ramp) {
     const c = g.source.context;
-    if (settings.autoEq) {
+    const autoOn = () => settings.eq && settings.autoEq;
+    if (autoOn()) {
       g.auto ??= AutoEq.create(c, g.eqIn, (gains) => {
-        if (!settings.autoEq) return;
+        if (!autoOn()) return;
         gains.forEach((v, i) => g.filters[i].gain.setTargetAtTime(v, c.currentTime, AUTO_RAMP));
       });
       // 分析がたまるまでは 0dB（素通し）から始める
@@ -344,9 +330,10 @@ const AudioGraph = (() => {
       g.auto.stop();
       g.auto = null;
     }
+    const gains = settings.eq ? settings.gains : g.filters.map(() => 0);
     g.filters.forEach((f, i) => {
-      if (ramp) f.gain.setTargetAtTime(settings.gains[i], c.currentTime, RAMP);
-      else f.gain.value = settings.gains[i];
+      if (ramp) f.gain.setTargetAtTime(gains[i], c.currentTime, RAMP);
+      else f.gain.value = gains[i];
     });
   }
 
@@ -368,10 +355,7 @@ const AudioGraph = (() => {
     // 全体を無効にしているあいだは音に使わないので、CPU を使わないように止める（有効に戻すと作り直す。0.2〜0.4 秒）
     const denoise = settings.enabled && settings.denoise;
     const active = denoise ? g.engines[settings.engine] : undefined;
-    // ノイズキャンセルのオートのときは、音楽や歌が続いていると判定したあいだだけ外す。ノードは動かしたまま判定を続ける
-    applyJudge(g, active?.node ?? null);
-    const paused = settings.denoiseAuto && g.judge?.state() === 'other';
-    const using = active?.node && !paused ? active : null;
+    const using = active?.node ? active : null;
     applyEq(g, ramp);
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
@@ -438,11 +422,9 @@ const AudioGraph = (() => {
   // ポップアップに見せる状態。オートEQ の分析が済んでいるかと、今の補正量
   function status() {
     const auto = latest?.auto;
-    const judge = latest?.judge;
     return {
       connected: !!latest,
       autoEq: auto ? { ready: auto.ready(), gains: auto.gains() } : null,
-      judge: judge ? { state: judge.state(), removal: judge.removal() } : null,
     };
   }
 

@@ -30,7 +30,7 @@ const FLAT = GAINS_A.map(() => 0);
 // eqPreset を指定したものはプリセットの選択で設定し、それ以外はスライダーで gains を設定する。keepEq なら手動の EQ は触らない。
 // オートEQ は分析がたまるまで時間がかかり、YouTube は再生開始から約40秒で止まることがあるので、最初に測る
 const BASE = {
-  enabled: true, denoise: false, denoiseAuto: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: false,
+  enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', eq: true, autoEq: false,
 };
 // 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
 const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
@@ -41,8 +41,13 @@ const AUTO_BOOST_LIMITS = [0, 0, 6, 12, 12, 12, 12, 12, 6, 0];
 const SCENARIOS = [
   // 手動の EQ をニュースにしてからオートEQ をオンにし、オフに戻したときにニュースに戻るかを確かめる
   { ...BASE, name: 'オートEQ', autoEq: true, eqPreset: 'news', wait: 20000 },
+  // オートEQ のままオフにすると、分析が止まり、全帯域 0dB になるか
+  { ...BASE, name: 'オートEQ からオフにする', eq: false, autoEq: true, gains: FLAT, keepEq: true },
   { ...BASE, name: 'オートEQ をオフに戻す（手動のニュースに戻る）', eqPreset: 'news', keepEq: true },
   { ...BASE, name: 'EQ 有効', gains: GAINS_A },
+  // オフにすると全帯域 0dB になり、手動に戻すと、オフにする前の手動の値（GAINS_A）に戻るか
+  { ...BASE, name: 'EQ オフ', eq: false, gains: GAINS_A, keepEq: true },
+  { ...BASE, name: 'EQ を手動に戻す（手動の値が残っている）', gains: GAINS_A, keepEq: true },
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
   { ...BASE, name: 'プリセット（ニュース）', eqPreset: 'news' },
@@ -53,8 +58,6 @@ const SCENARIOS = [
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT, wait: 5000 },
   { ...BASE, name: 'ノイズキャンセルを RNNoise に戻す（作り直し）', denoise: true, gains: FLAT },
-  // オートは、ふだんはかけ、音楽らしい消し方が 15 秒続いたら外す。判定が動いていることと、判定とかけ外しが合っているかを確かめる
-  { ...BASE, name: 'ノイズキャンセル（オート）', denoise: true, denoiseAuto: true, gains: FLAT, wait: 8000 },
   { ...BASE, name: 'すべて無効に戻す（EQ だけ有効）', engine: 'deepfilternet', gains: GAINS_A },
 ];
 
@@ -162,11 +165,6 @@ const INSTALL_PROBE = `(async () => {
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
         auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
-        // ノイズキャンセルのオートの判定（'speech' = かける / 'other' = 外す）と、大きい瞬間に消した量、
-        // ふだんより十分小さい音で数えていないか、音楽らしい消し方が続いている秒数
-        judge: g.judge ? {
-          state: g.judge.state(), removal: g.judge.removal(), quiet: g.judge.quiet(), musicSeconds: g.judge.musicSeconds(),
-        } : null,
       },
       bands: probes.map((p, k) => ({ hz: p, expectedDb: expected[k], measuredDb: avg(k, 'd'), inputDb: avg(k, 'lv') })),
     };
@@ -213,18 +211,18 @@ const INSTALL_PROBE = `(async () => {
 
 // ポップアップのスライダー・選択肢・スイッチを、ユーザーが操作したときと同じイベントで動かす。
 // スライダーは画面上では高音が上に並ぶので、帯域の番号（data-band）で選ぶ
-async function setPopup(popup, { enabled, denoise, denoiseAuto, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq }) {
-  await popup.evaluate((enabled, denoise, denoiseAuto, engine, leveler, levelerStrength, autoEq, gains, eqPreset, keepEq) => {
-    // 全体が無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
+async function setPopup(popup, { enabled, denoise, engine, leveler, levelerStrength, eq, autoEq, gains, eqPreset, keepEq }) {
+  await popup.evaluate((enabled, denoise, engine, leveler, levelerStrength, eq, autoEq, gains, eqPreset, keepEq) => {
+    // このサイトが無効のあいだは「有効」のスイッチ以外を操作できないので、先に有効にし、無効にするのは最後にする
     const enabledSwitch = document.getElementById('enabled');
     if (!enabledSwitch.checked) enabledSwitch.click();
-    // EQ はオートか手動のどちらか。オートのあいだは手動の EQ を操作できないので、手動の EQ を変えるときは先に手動にする
-    const setAuto = (on) => {
-      const mode = document.querySelector(`input[name="eqMode"][value="${on ? 'auto' : 'manual'}"]`);
+    // EQ はオフ・オート・手動のどれか。手動のときしか手動の EQ を操作できないので、手動の EQ を変えるときは先に手動にする
+    const setMode = (value) => {
+      const mode = document.querySelector(`input[name="eqMode"][value="${value}"]`);
       if (!mode.checked) mode.click();
     };
     if (!keepEq) {
-      setAuto(false);
+      setMode('manual');
       if (eqPreset) {
         const select = document.getElementById('eqPreset');
         select.value = eqPreset;
@@ -237,18 +235,17 @@ async function setPopup(popup, { enabled, denoise, denoiseAuto, engine, leveler,
         });
       }
     }
-    setAuto(autoEq);
+    setMode(!eq ? 'off' : autoEq ? 'auto' : 'manual');
     for (const [name, value] of [['engine', engine], ['levelerStrength', levelerStrength]]) {
       const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
       if (!radio.checked) radio.click();
     }
-    // ノイズキャンセルは、オフ / オート / オンの切り替え
-    const mode = document.querySelector(`input[name="denoiseMode"][value="${!denoise ? 'off' : denoiseAuto ? 'auto' : 'on'}"]`);
-    if (!mode.checked) mode.click();
-    const levelerSwitch = document.getElementById('leveler');
-    if (levelerSwitch.checked !== leveler) levelerSwitch.click();
+    for (const [id, on] of [['denoise', denoise], ['leveler', leveler]]) {
+      const toggle = document.getElementById(id);
+      if (toggle.checked !== on) toggle.click();
+    }
     if (!enabled) enabledSwitch.click();
-  }, enabled, denoise, !!denoiseAuto, engine, leveler, levelerStrength, autoEq, gains ?? null, eqPreset ?? null, !!keepEq);
+  }, enabled, denoise, engine, leveler, levelerStrength, eq, autoEq, gains ?? null, eqPreset ?? null, !!keepEq);
 }
 
 async function check(browser, extId, url) {
@@ -362,8 +359,8 @@ async function check(browser, extId, url) {
     const shown = await popup.evaluate(async (key) => {
       const s = await Settings.load(key);
       return document.getElementById('eqPreset').value === s.eqPreset
-        && document.querySelector('input[name="eqMode"]:checked')?.value === (s.autoEq ? 'auto' : 'manual')
-        && document.querySelector('input[name="denoiseMode"]:checked')?.value === (!s.denoise ? 'off' : s.denoiseAuto ? 'auto' : 'on');
+        && document.querySelector('input[name="eqMode"]:checked')?.value === (!s.eq ? 'off' : s.autoEq ? 'auto' : 'manual')
+        && document.getElementById('denoise').checked === s.denoise;
     }, siteKey);
     if (!shown) return { url, title, logs, video, fail: 'ポップアップを開いたときの表示が、保存されている設定と違う' };
     // プリセットのゲインは拡張の設定から取る（期待値に使う）
@@ -400,8 +397,10 @@ async function check(browser, extId, url) {
 
 function judgeRun({ scenario, m, locked, manualEditable }) {
   if (locked !== !scenario.enabled) return { ok: false, reason: scenario.enabled ? 'ポップアップの欄を操作できない' : '全体を無効にしても、ほかの欄を操作できる' };
-  if (scenario.enabled && manualEditable === scenario.autoEq) {
-    return { ok: false, reason: scenario.autoEq ? 'オートなのに手動の EQ を操作できる' : '手動なのにプリセットやスライダーを操作できない' };
+  // 手動の EQ（プリセット・スライダー）は、手動のときだけ操作できる
+  const manual = scenario.eq && !scenario.autoEq;
+  if (scenario.enabled && manualEditable !== manual) {
+    return { ok: false, reason: manual ? '手動なのにプリセットやスライダーを操作できない' : 'オートかオフなのに手動の EQ を操作できる' };
   }
   if (m.ctxState !== 'running') return { ok: false, reason: `AudioContext が ${m.ctxState}` };
   // 動画からは音が来ているのに拡張の入口が無音なら、拡張の問題
@@ -416,7 +415,7 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
   if (scenario.enabled && m.peakOut > 1) return { ok: false, reason: `リミッターを通った音が 0dBFS を超えた（ピーク ${m.peakOut.toFixed(3)}）` };
   const near = (x, y, eps) => Math.abs(x - y) <= eps;
   const p = m.params;
-  if (scenario.autoEq) {
+  if (scenario.eq && scenario.autoEq) {
     // ほぼ無音の配信（ニコ生の馬房の定点カメラで、大半が -100dB 以下）では、分析に使える音が少なく、20 秒では分析が終わらないことがある
     if (!p.auto?.ready && m.inRmsDb < -60) return { ok: false, skip: true, reason: '音がほとんどなく、オートEQ の分析が終わらない' };
     if (!p.auto?.ready) return { ok: false, reason: 'オートEQ の分析が終わっていない' };
@@ -430,18 +429,15 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
     if (!p.auto.gains.every((g, i) => near(p.gains[i], g, 3))) return { ok: false, reason: 'フィルタのゲインがオートEQ の補正量と違う' };
   } else {
     if (p.auto) return { ok: false, reason: 'オートEQ の分析が止まっていない' };
-    if (!scenario.gains.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
+    // オフのときは、手動の値にかかわらず全帯域 0dB
+    const expected = scenario.eq ? scenario.gains : FLAT;
+    if (!expected.every((g, i) => near(p.gains[i], g, 0.05))) return { ok: false, reason: 'フィルタのゲインが設定と違う' };
   }
   if (!near(p.wet, scenario.enabled ? 1 : 0, 0.01) || !near(p.dry, scenario.enabled ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'wet / dry のゲインが設定と違う' };
   }
   if (scenario.denoise && !p.engines[scenario.engine]?.ready) return { ok: false, reason: `${scenario.engine} のノードがない` };
-  // 判定は、ノイズキャンセルのオートのときだけ動く（v0.22 まではオートEQ でも動いていた）
-  const judging = scenario.enabled && scenario.denoise && scenario.denoiseAuto;
-  if (judging && !p.judge) return { ok: false, reason: 'ノイズキャンセルのオートの判定が動いていない' };
-  if (!judging && p.judge) return { ok: false, reason: 'ノイズキャンセルのオートの判定が止まっていない' };
-  // ノイズキャンセルのオートのときは、音楽や歌が続いていると判定したときだけ外す
-  const engaged = scenario.denoise && (!scenario.denoiseAuto || p.judge.state !== 'other');
+  const engaged = scenario.denoise;
   const leftover = Object.keys(p.engines).filter((k) => !(scenario.denoise && k === scenario.engine));
   if (leftover.length) return { ok: false, reason: `使っていない方式が止まっていない: ${leftover.join(', ')}` };
   for (const [name, e] of Object.entries(p.engines)) {
@@ -464,7 +460,7 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
   }
   // EQ の効き方を確かめる設定で、リミッターが効いて判定できなかったときは、OK ではなく判定できないものとして扱う
   // （低音強調はリミッターが効く前提で、0dBFS を超えないことを確かめている）
-  const checksEq = scenario.enabled && !scenario.autoEq && !scenario.denoise && !scenario.leveler && scenario.eqPreset !== 'bass';
+  const checksEq = scenario.enabled && manual && !scenario.denoise && !scenario.leveler && scenario.eqPreset !== 'bass';
   if (checksEq && m.limited) return { ok: false, skip: true, reason: 'リミッターが効いたので、EQ の効き方を判定できない' };
   const expectsBands = m.bands.some((b) => b.expectedDb !== null);
   if (expectsBands && judged.length < 2) return { ok: false, skip: true, reason: '測れる帯域が少ない' };
@@ -505,18 +501,14 @@ function report(r, j) {
   r.runs.forEach(({ scenario, m }, i) => {
     const rj = j.results[i];
     const p = m.params;
-    const eq = scenario.autoEq ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
-    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}${scenario.denoiseAuto ? '・オート' : ''}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
+    const eq = !scenario.eq ? 'オフ' : scenario.autoEq ? 'オート' : `${scenario.eqPreset ? `${scenario.eqPreset} ` : ''}${scenario.gains.map(f).join(', ')} dB`;
+    console.log(`\n  [${scenario.name}] 設定: ${scenario.enabled ? 'ON' : 'OFF'} / ノイズキャンセル ${scenario.denoise ? `ON（${scenario.engine}）` : 'OFF'} / 音量をそろえる ${scenario.leveler ? scenario.levelerStrength : 'off'} / EQ ${eq}`);
     // 完全な無音の RMS（-Infinity）は、CDP で受け取ると null になる
     const db = (x) => (x === null ? '-∞' : x.toFixed(1));
     console.log(`    AudioContext: ${m.ctxState} / ${m.sampleRate}Hz　ピーク: ${m.peak.toFixed(4)}　RMS: 入口 ${db(m.inRmsDb)} → 出口 ${db(m.outRmsDb)} dBFS　動画: ${m.video.paused ? '一時停止' : '再生中'} ${m.video.time.toFixed(1)}秒`);
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB　リミッターの最大圧縮量 ${p.limiter.maxReduction.toFixed(1)}dB`);
-    if (p.judge) {
-      const { removal: r, quiet, musicSeconds } = p.judge;
-      console.log(`    オートの判定: ${p.judge.state}　大きい瞬間に消した量 ${r === null ? '-' : r.toFixed(1)}dB${quiet ? '（ふだんより小さい音なので数えていない）' : ''}　音楽らしい消し方が続いている長さ ${musicSeconds.toFixed(1)}秒`);
-    }
     if (p.auto?.levels) {
       // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
       const { levels, target, gains } = p.auto;

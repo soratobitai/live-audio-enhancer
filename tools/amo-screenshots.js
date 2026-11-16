@@ -1,6 +1,6 @@
 // ストア（AMO）に載せるスクリーンショット（1280×800）を作る。docs/amo/screenshots/ に保存する。
 // 実際のポップアップの画面（extension/popup/popup.html）を開き、左にポップアップ、右に説明を並べて撮る。
-// オートの画面は、配信につないだときの補正量（Twitch の雑談で実際に出た値）を再現して撮る。
+// オートEQ の画面は、配信につないだときの補正量（Twitch の雑談で実際に出た値）を再現して撮る。
 // ここでは開発中の拡張として読み込むので、オートの状態（「今：〜」）が出る。利用者には出ないので、消してから撮る。
 //
 // 使い方:
@@ -20,17 +20,28 @@ const SHOTS = [
   {
     file: '1-overview.png',
     title: '配信の音を、聞きやすく',
-    points: ['AIノイズキャンセル', '音量をそろえる', '10バンドのイコライザーと12のプリセット', 'ニコ生・YouTube・Twitch・Kick・TVer・ABEMA', 'サイトごとに設定を保存'],
+    points: ['AIノイズキャンセル', '音量をそろえる', '10バンドのイコライザー（オートと12のプリセット）', 'ニコ生・YouTube・Twitch・Kick・TVer・ABEMA'],
     site: 'youtube',
-    settings: { enabled: true, denoise: true, denoiseAuto: false, engine: 'rnnoise', leveler: true, levelerStrength: 'standard', autoEq: false, eqPreset: 'voice', gains: [-4, -3, -1, 0, 1, 2, 4, 4, 2, 0] },
+    settings: { enabled: true, denoise: true, engine: 'rnnoise', leveler: true, levelerStrength: 'standard', autoEq: false, eqPreset: 'voice', gains: [-4, -3, -1, 0, 1, 2, 4, 4, 2, 0] },
   },
   {
-    file: '2-auto.png',
-    title: 'オートにおまかせ',
-    points: ['ノイズキャンセルは、音楽や歌が続くと自動で外す', 'イコライザーは、話し声が聞きやすいように自動調整'],
+    // サイトのタブ（サイトごとのオン・オフの一覧）を撮る
+    file: '2-sites.png',
+    title: 'サイトごとに使い分け',
+    points: ['設定はサイトごとに保存', 'ライブ配信はノイズキャンセルをオン、テレビ番組はオフ、など', 'サイトごとにオン・オフも'],
     site: 'twitch',
-    settings: { enabled: true, denoise: true, denoiseAuto: true, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', autoEq: true, eqPreset: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    // 配信につないだときの、オートEQ の補正量
+    view: 'sites',
+    settings: { enabled: true, denoise: true, engine: 'rnnoise', leveler: true, levelerStrength: 'standard', autoEq: true, eqPreset: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // サイトごとに変える設定（一覧で、オフのサイトがあることを見せる）
+    siteOverrides: { kick: { enabled: false } },
+  },
+  {
+    file: '3-auto-eq.png',
+    title: 'イコライザーはオートでも',
+    points: ['話し声が聞きやすいように、番組に合わせて自動で調整', '音楽向けにしたいときは、手動のプリセットで'],
+    site: 'tver',
+    settings: { enabled: true, denoise: false, engine: 'rnnoise', leveler: true, levelerStrength: 'standard', autoEq: true, eqPreset: 'flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // 配信につないだときの、オートEQ の補正量（Twitch の雑談で実際に出た値）
     autoGains: [0, 0, 3.0, -4.1, -4.5, 0.3, 3.1, 5.7, 6.0, 0],
   },
 ];
@@ -47,12 +58,13 @@ try {
     await popup.setViewport({ width: POPUP_WIDTH, height: 620, deviceScaleFactor: 2 });
     // 設定はサイトごと。すべてのサイトに同じ設定を入れ、shot.site のサイトの設定として開く
     await popup.goto(`chrome-extension://${extId}/popup/popup.html?site=${shot.site}`);
-    await popup.evaluate((s) => Settings.saveAll(Object.fromEntries(Settings.SITES.map(({ id }) => [id, s]))), shot.settings);
+    await popup.evaluate((s, overrides) => Settings.saveAll(Object.fromEntries(Settings.SITES.map(({ id }) => [id, { ...s, ...overrides?.[id] }]))), shot.settings, shot.siteOverrides ?? null);
     await popup.reload();
     await popup.waitForSelector('.band input');
     await new Promise((r) => setTimeout(r, 1500));
     // 利用者の画面に合わせて、オートの状態（開発中の拡張でだけ出る）を消す
     await popup.evaluate(() => document.querySelectorAll('.status').forEach((note) => note.remove()));
+    if (shot.view === 'sites') await popup.click('#tabSites');
     if (shot.autoGains) {
       await popup.evaluate((gains) => {
         const inputs = [...document.querySelectorAll('.band input')];

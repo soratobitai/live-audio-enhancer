@@ -34,14 +34,11 @@
         <svg viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>
       </span>
       <h2>ノイズキャンセル</h2>
-      <div class="segmented three" role="radiogroup" aria-label="ノイズキャンセル">
-        <label title="かけない"><input type="radio" name="denoiseMode" value="off"><span>オフ</span></label>
-        <label title="ふだんはかけ、音楽や歌が続くときは外す"><input type="radio" name="denoiseMode" value="auto"><span>オート</span></label>
-        <label title="いつもかける"><input type="radio" name="denoiseMode" value="on"><span>オン</span></label>
-      </div>
+      <label class="switch">
+        <input type="checkbox" role="switch" id="denoise" aria-label="ノイズキャンセル">
+      </label>
     </div>
-    <!-- 説明は、選んでいるモード（オフ / オート / オン）に合わせて popup.js で切り替える -->
-    <p class="note denoise-explain"></p>
+    <p class="note">声以外の雑音を抑えます。歌や音楽には向きません</p>
     <div class="choices" role="radiogroup" aria-label="ノイズキャンセルの強さ">
       <!-- 方式の名前と注意点は、画面には出さず、マウスを乗せたときに出す -->
       <label title="RNNoise。軽く、音の遅れも小さい">
@@ -53,7 +50,6 @@
         <span>強め</span>
       </label>
     </div>
-    <p class="status denoise-note" hidden></p>
   </section>
 
   <section class="card feature leveler">
@@ -74,17 +70,19 @@
   </section>
 
   <section class="card eq">
-    <!-- EQ のゲインの決め方。オート（話し声が聞きやすいように、番組に合わせて自動）か、手動（プリセットとスライダー）のどちらか -->
+    <!-- EQ のゲインの決め方。オフ、オート（話し声が聞きやすいように、番組に合わせて自動）、手動（プリセットとスライダー）のどれか -->
     <div class="card-head">
       <span class="badge badge-eq" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M6 4v16M12 4v16M18 4v16"/><circle cx="6" cy="14" r="2.2"/><circle cx="12" cy="8" r="2.2"/><circle cx="18" cy="12" r="2.2"/></svg>
       </span>
       <h2>イコライザー</h2>
       <div class="segmented" role="radiogroup" aria-label="イコライザーの決め方">
+        <label><input type="radio" name="eqMode" value="off"><span>オフ</span></label>
         <label><input type="radio" name="eqMode" value="auto"><span>オート</span></label>
         <label><input type="radio" name="eqMode" value="manual"><span>手動</span></label>
       </div>
     </div>
+    <p class="note off-panel">かけません。手動の設定は残しておきます</p>
     <div class="auto-panel">
       <p class="note">話し声が聞きやすいように、番組に合わせて整えます</p>
       <p class="status auto-note" hidden></p>
