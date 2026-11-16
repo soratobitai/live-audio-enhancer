@@ -26,6 +26,8 @@
 - カテゴリ：エンターテインメントは「スポーツ・音楽・テレビ・映画のファン向け」と定義されていて、配信や動画を見る人向けのこの拡張に合う
 - 言語：拡張に `_locales` がないので、掲載文は 1 つの言語だけになる。英語の説明は、日本語の説明の下に並べて書く
 - 対応サイトの名前は、説明の中で 1 回だけ書く。動作するサイトの長い一覧や、同じ言葉の繰り返しは、キーワードスパムとして却下の理由になる
+  - **2026-11-16 に、この 1 行（「ニコニコ生放送、YouTube、Twitch、Kick、TVer、ABEMA」）がキーワードスパム（違反の参照 ID：Yellow Argon）として却下された**。対応サイトは利用者にとって大事な情報なので、同じ日に異議申し立てをした。結果待ち
+  - 異議が通らなかったときは、下の「異議が通らなかったときの文」に差し替え、スクリーンショットの 1 枚目からもサイト名を外す（`tools/amo-screenshots.js` の 1-overview の 4 つ目の項目を「ライブ配信や見逃し配信の主な動画サイトに対応」にする）。2 枚目（サイトのタブ）の画像には、実際の画面としてサイト名が並んでいるので、一覧はそこで伝わる
 
 ### 説明（Description）
 
@@ -77,6 +79,20 @@ Live Audio Enhancer makes the sound of live streams and videos easier to listen 
 
 Works on the six sites listed above, with separate settings for each site; each site can be turned on or off. This is an unofficial extension, not affiliated with those sites.
 The user interface is in Japanese. All audio processing happens on your computer; no data is collected or sent.
+```
+
+### 異議が通らなかったときの文
+
+説明の「■ 対応サイト」の 2 行目（サイト名の一覧）を、次に差し替える：
+
+```text
+国内外の主な動画配信サイト（ライブ配信と見逃し配信）6 つに対応しています。対応サイトの一覧は、インストールのときの確認画面と、ポップアップの「サイト」タブで確かめられます。
+```
+
+英語の部分の「Works on the six sites listed above, …」の行を、次に差し替える：
+
+```text
+Works on six major video and live streaming sites, with separate settings for each site; each site can be turned on or off. The list of sites is shown when you install it and in the "サイト" (Sites) tab of the popup. This is an unofficial extension, not affiliated with those sites.
 ```
 
 ## プライバシーへの取り組み（Privacy practices）
