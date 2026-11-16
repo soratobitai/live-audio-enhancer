@@ -34,8 +34,6 @@ let view = 'settings'; // 'settings'（このサイトの設定）/ 'sites'（�
 let siteSwitches = []; // サイトの一覧のスイッチ（Settings.SITES の順）
 let copyArmed = false; // 「ほかのサイトにも使う」を 1 回押して、確かめているあいだ
 let copyTimer = null; // 確かめる表示や、使ったことの表示を、元に戻すまでのタイマー
-// 開発中に読み込んだ拡張のときだけ、オートの状態（「今：〜」）を出す。ストアから入れた利用者には、判定の誤りを見せない
-let debug = false;
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
 // 状態の問い合わせ（オートEQ の補正量）
 let statusTimer = null;
@@ -67,15 +65,6 @@ async function currentSite() {
   }
 }
 
-// 開発中に読み込んだ拡張か（Chrome の「パッケージ化されていない拡張機能」、Firefox の一時的なアドオン）。
-// management.getSelf は management の権限なしで使える。使えないときは、利用者向けとみなす
-async function isDevelopment() {
-  try {
-    return (await chrome.management.getSelf()).installType === 'development';
-  } catch {
-    return false;
-  }
-}
 
 // 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
@@ -188,12 +177,13 @@ async function showStatus(controls) {
   statusReplied = asked;
   const connected = usable && status?.connected;
   const notConnected = usable ? 'このタブでは、まだ動画につないでいません' : 'このタブでは使えません';
+  // オートEQ は、音が 5 秒ぶんたまるまで補正しない（スライダーは 0dB のまま）ので、そのあいだは分析中と出す
   const autoOn = state.eq && state.autoEq;
-  if (autoOn && debug) {
+  if (autoOn) {
     const ready = connected && status.autoEq?.ready;
     autoNote.dataset.state = ready ? 'ready' : 'wait';
     autoNote.textContent = !connected ? notConnected
-      : !ready ? '今：番組の音を分析しています…'
+      : !ready ? '今：番組の音を分析しています（数秒かかります）'
       : '今：番組に合わせて調整しています';
   }
   if (autoOn && status?.autoEq) showGains(controls, status.autoEq.gains);
@@ -212,7 +202,6 @@ function render(controls) {
   denoiseInput.checked = state.denoise;
   for (const input of engineInputs) input.checked = input.value === state.engine;
   denoiseSection.classList.toggle('on', state.denoise);
-  autoNote.hidden = !debug;
 
   // 音量をそろえる：オン・オフと強さ
   levelerInput.checked = state.leveler;
@@ -256,6 +245,9 @@ function render(controls) {
     clearInterval(statusTimer);
     statusTimer = null;
     if (want) {
+      // 最初の返事が届くまで空にならないように、分析中と出しておく
+      autoNote.dataset.state = 'wait';
+      autoNote.textContent = '今：番組の音を分析しています（数秒かかります）';
       showStatus(controls);
       statusTimer = setInterval(() => showStatus(controls), 1000);
     }
@@ -272,7 +264,7 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
 }
 
 (async () => {
-  [all, site, debug] = await Promise.all([Settings.loadAll(), currentSite(), isDevelopment()]);
+  [all, site] = await Promise.all([Settings.loadAll(), currentSite()]);
   state = site ? all[site] : null;
   buildPresets();
   const controls = buildBands();

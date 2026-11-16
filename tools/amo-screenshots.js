@@ -1,7 +1,7 @@
 // ストア（AMO）に載せるスクリーンショット（1280×800）を作る。docs/amo/screenshots/ に保存する。
 // 実際のポップアップの画面（extension/popup/popup.html）を開き、左にポップアップ、右に説明を並べて撮る。
 // オートEQ の画面は、配信につないだときの補正量（Twitch の雑談で実際に出た値）を再現して撮る。
-// ここでは開発中の拡張として読み込むので、オートの状態（「今：〜」）が出る。利用者には出ないので、消してから撮る。
+// ポップアップの画面はタブで開くので、オートEQ の状態は「このタブでは使えません」になる。配信につないだときの表示に書き換えて撮る。
 //
 // 使い方:
 //   npm run amo:screenshots
@@ -62,11 +62,12 @@ try {
     await popup.reload();
     await popup.waitForSelector('.band input');
     await new Promise((r) => setTimeout(r, 1500));
-    // 利用者の画面に合わせて、オートの状態（開発中の拡張でだけ出る）を消す
-    await popup.evaluate(() => document.querySelectorAll('.status').forEach((note) => note.remove()));
     if (shot.view === 'sites') await popup.click('#tabSites');
     if (shot.autoGains) {
       await popup.evaluate((gains) => {
+        const note = document.querySelector('.auto-note');
+        note.textContent = '今：番組に合わせて調整しています';
+        note.dataset.state = 'ready';
         const inputs = [...document.querySelectorAll('.band input')];
         gains.forEach((g, i) => {
           const input = inputs.find((el) => Number(el.dataset.band) === i);
