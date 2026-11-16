@@ -101,7 +101,7 @@ h1 {
   outline-offset: 1px;
 }
 
-/* 設定の一番上の行：サイト名、ほかのサイトにも使う、このサイトでのオン・オフ */
+/* 設定の一番上の行：サイト名と、このサイトでのオン・オフ */
 .site-bar {
   display: flex;
   align-items: center;
@@ -155,6 +155,19 @@ h1 {
   margin-left: 6px;
   color: var(--muted);
   font-size: 11.5px;
+}
+
+/* サイトの一覧の下：開いているタブのサイトの設定を、全サイトに適用する */
+.apply-all {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.apply-all .text-button {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .unsupported {

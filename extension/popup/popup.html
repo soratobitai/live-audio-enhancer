@@ -20,7 +20,6 @@
   <!-- 設定は、開いているタブのサイトごとに持つ。この行のスイッチは、このサイトでのオン・オフ（「サイト」の一覧と同じ値） -->
   <div class="site-bar">
     <span class="site-name" id="siteName"></span>
-    <button type="button" id="copyToAll" class="text-button" title="このサイトの設定を、ほかのすべてのサイトにも使う（オン・オフは変えない）">ほかのサイトにも使う</button>
     <label class="switch" title="オフにすると、このサイトでは元の音に戻ります">
       <span>有効</span>
       <input type="checkbox" role="switch" id="enabled">
@@ -103,6 +102,11 @@
       <h2>サイトごとのオン・オフ</h2>
       <p class="note">オフにしたサイトでは、音に何もしません</p>
       <div id="siteList" class="site-list"></div>
+      <!-- 開いているタブのサイトの設定を、全サイトに写す（一度だけ。オン・オフは写さない）。対応サイト以外のタブでは出さない -->
+      <div class="apply-all" id="applyAll">
+        <button type="button" id="applyToAll" class="text-button"></button>
+        <p class="note">各サイトのオン・オフは変わりません</p>
+      </div>
     </section>
     <p class="note unsupported" id="unsupported" hidden>このタブは対応サイトではないので、設定は変えられません。</p>
   </main>

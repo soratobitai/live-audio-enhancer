@@ -17,7 +17,8 @@ const tabSites = document.getElementById('tabSites');
 const settingsView = document.getElementById('settingsView');
 const sitesView = document.getElementById('sitesView');
 const siteName = document.getElementById('siteName');
-const copyButton = document.getElementById('copyToAll');
+const applyAll = document.getElementById('applyAll');
+const copyButton = document.getElementById('applyToAll');
 const siteList = document.getElementById('siteList');
 const unsupportedNote = document.getElementById('unsupported');
 
@@ -32,7 +33,7 @@ let site = null;
 let state = null;
 let view = 'settings'; // 'settings'（このサイトの設定）/ 'sites'（サイトごとのオン・オフ）
 let siteSwitches = []; // サイトの一覧のスイッチ（Settings.SITES の順）
-let copyArmed = false; // 「ほかのサイトにも使う」を 1 回押して、確かめているあいだ
+let copyArmed = false; // 「〇〇の設定を全サイトに適用」を 1 回押して、確かめているあいだ
 let copyTimer = null; // 確かめる表示や、使ったことの表示を、元に戻すまでのタイマー
 let autoShown = null; // 今オートEQ の表示をしているか（オートと手動を切り替えたときだけ、スライダーの表示を切り替えるため）
 // 状態の問い合わせ（オートEQ の補正量）
@@ -64,7 +65,6 @@ async function currentSite() {
     return null;
   }
 }
-
 
 // 帯域ごとの行を作る。返す配列は帯域の順（低音から）で、画面には高音を上にして並べる
 function buildBands() {
@@ -149,6 +149,7 @@ function showView(next) {
   }
   tabSettings.disabled = !site;
   unsupportedNote.hidden = !!site;
+  applyAll.hidden = !site;
 }
 
 function showGains(controls, gains) {
@@ -254,8 +255,8 @@ function render(controls) {
   }
 }
 
-// 「ほかのサイトにも使う」を、確かめる前の表示に戻す
-function resetCopyButton(text = 'ほかのサイトにも使う') {
+// 「〇〇の設定を全サイトに適用」を、確かめる前の表示に戻す
+function resetCopyButton(text = `${Settings.SITES.find(({ id }) => id === site)?.label}の設定を全サイトに適用`) {
   clearTimeout(copyTimer);
   copyTimer = null;
   copyArmed = false;
@@ -269,6 +270,7 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
   buildPresets();
   const controls = buildBands();
   buildSiteList();
+  if (site) resetCopyButton();
   showView('settings');
   render(controls);
 
@@ -282,14 +284,14 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
   for (const input of siteSwitches) {
     input.addEventListener('change', () => change(() => { all[input.dataset.site].enabled = input.checked; }));
   }
-  // このサイトの設定を、ほかのすべてのサイトにも使う（各サイトのオン・オフは変えない）。
-  // ほかのサイトの設定を上書きするので、1 回目は確かめ、4 秒以内にもう一度押したときだけ使う
+  // このサイトの設定を、全サイトに適用する（一度だけ写す。各サイトのオン・オフは変えない）。
+  // ほかのサイトの設定を上書きするので、1 回目は確かめ、4 秒以内にもう一度押したときだけ写す
   copyButton.addEventListener('click', () => {
     if (!copyArmed) {
       resetCopyButton();
       copyArmed = true;
       copyButton.classList.add('confirm');
-      copyButton.textContent = 'もう一度押すと上書き';
+      copyButton.textContent = 'もう一度押すと上書きします';
       copyTimer = setTimeout(() => resetCopyButton(), 4000);
       return;
     }
@@ -297,7 +299,7 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
       if (id !== site) all[id] = { ...JSON.parse(JSON.stringify(state)), enabled: all[id].enabled };
     }
     save();
-    resetCopyButton('ほかのサイトにも使いました');
+    resetCopyButton('全サイトに適用しました');
     copyTimer = setTimeout(() => resetCopyButton(), 2000);
   });
   enabledInput.addEventListener('change', () => change(() => { state.enabled = enabledInput.checked; }));
