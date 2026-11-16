@@ -40,7 +40,8 @@ const Settings = (() => {
   const STRENGTHS = Object.freeze(['standard', 'strong']);
 
   // EQ のプリセット。ゲインは帯域の順（31Hz〜16kHz）で、聞いて調整する前提の初期値。
-  // プリセットを選ぶとその値が gains に入り、スライダーを動かすと 'custom' になる
+  // プリセットを選ぶとその値が gains に入り、スライダーを動かすと 'custom' になる。
+  // カスタムの値は customGains に別に覚えておくので、プリセットを選んでも消えず、「カスタム」を選ぶと戻る
   const PRESETS = Object.freeze([
     { id: 'flat', label: 'フラット', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
     { id: 'bass', label: '低音強調', gains: [8, 7, 5, 2, 0, 0, 0, 0, 0, 0] },
@@ -64,7 +65,7 @@ const Settings = (() => {
   function defaults() {
     return {
       enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard',
-      eq: true, autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0),
+      eq: true, autoEq: false, eqPreset: 'flat', gains: BANDS.map(() => 0), customGains: BANDS.map(() => 0),
     };
   }
 
@@ -75,6 +76,7 @@ const Settings = (() => {
     if (!v || typeof v !== 'object') return d;
     const clamp = (x) => Math.min(GAIN_RANGE, Math.max(-GAIN_RANGE, x));
     const gains = Array.isArray(v.gains) && v.gains.length === BANDS.length ? v.gains : d.gains;
+    const fix = (g) => g.map((x) => (Number.isFinite(x) ? clamp(x) : 0));
     // 以前はオートEQ を eqPreset の 'auto' で表していた。オートEQ をオンにし、EQ はゲインと同じプリセットか、カスタムにする
     const legacyAuto = v.eqPreset === 'auto';
     const presetOf = (g) => PRESETS.find((p) => p.gains.every((x, i) => x === g[i]))?.id ?? 'custom';
@@ -89,6 +91,12 @@ const Settings = (() => {
     // スライダーを動かすとカスタムになるので、プリセットの値と違うのは、プリセットの値を変えた（v0.9.0 で低音強調・
     // 高音強調・小音量・夜間を強めた）あとや、帯域の数が変わってゲインをフラットに戻したとき。表示と音をそろえる
     const preset = PRESETS.find((p) => p.id === eqPreset);
+    // カスタムの値（v0.26.0 から別に覚える）。カスタムを選んでいるときは、今のゲインがカスタムの値
+    // （ポップアップは両方を同じにして保存する。検証ツールのように gains だけを書いたときも、それを使う）。
+    // プリセットを選んでいるときは、覚えておいた値を使う。それまでの設定（覚えた値がない）は、今のゲインから始める
+    // （以前は「カスタム」を選ぶと今のゲインのままだったので、それと同じになる）
+    const customGains = eqPreset === 'custom' ? fix(gains)
+      : Array.isArray(v.customGains) && v.customGains.length === BANDS.length ? fix(v.customGains) : fix(gains);
     return {
       enabled: typeof v.enabled === 'boolean' ? v.enabled : d.enabled,
       // v0.19〜v0.24 にあったノイズキャンセルのオート（denoiseAuto）は、なくした。オートはノイズキャンセルがオンのときだけ
@@ -102,7 +110,9 @@ const Settings = (() => {
       eq: typeof v.eq === 'boolean' ? v.eq : d.eq,
       autoEq: typeof v.autoEq === 'boolean' ? v.autoEq : legacyAuto,
       eqPreset,
-      gains: preset ? [...preset.gains] : gains.map((g) => (Number.isFinite(g) ? clamp(g) : 0)),
+      // ゲインは、プリセットを選んでいるならその値、カスタムならカスタムの値
+      gains: preset ? [...preset.gains] : [...customGains],
+      customGains,
     };
   }
 

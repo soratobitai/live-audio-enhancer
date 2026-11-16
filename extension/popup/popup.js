@@ -101,6 +101,7 @@ function buildBands() {
     input.addEventListener('input', () => {
       state.gains[i] = Number(input.value);
       state.eqPreset = 'custom';
+      state.customGains = [...state.gains];
       presetSelect.value = 'custom';
       value.textContent = gainText(state.gains[i]);
       paintFill(input);
@@ -321,13 +322,15 @@ function resetCopyButton(text = 'ほかのサイトにも使う') {
       if (state.eq) state.autoEq = input.value === 'auto';
     }));
   }
-  // プリセットを選んだら、その値をゲインに入れる。カスタムは、手動のゲインをそのまま残す
+  // プリセットを選んだら、その値をゲインに入れる。カスタムを選んだら、覚えておいたカスタムの値に戻す
   presetSelect.addEventListener('change', () => change(() => {
     state.eqPreset = presetSelect.value;
     const preset = Settings.PRESETS.find((p) => p.id === state.eqPreset);
-    if (preset) state.gains = [...preset.gains];
+    state.gains = [...(preset ? preset.gains : state.customGains)];
   }));
+  // カスタムのときに押したら、カスタムの値もフラットにする（調整を捨てたいので）。プリセットのときは、カスタムの値は残す
   resetButton.addEventListener('click', () => change(() => {
+    if (state.eqPreset === 'custom') state.customGains = Settings.defaults().gains;
     state.gains = Settings.defaults().gains;
     state.eqPreset = 'flat';
   }));

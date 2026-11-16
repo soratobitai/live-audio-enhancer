@@ -51,6 +51,8 @@ const SCENARIOS = [
   { ...BASE, name: 'EQ 無効（バイパス）', enabled: false, gains: GAINS_A },
   { ...BASE, name: 'EQ 有効に戻す（ゲイン変更）', gains: GAINS_B },
   { ...BASE, name: 'プリセット（ニュース）', eqPreset: 'news' },
+  // プリセットを選んでも、カスタムの値（直前にスライダーで決めた GAINS_B）は残っていて、「カスタム」を選ぶと戻るか
+  { ...BASE, name: 'カスタムに戻す（プリセットを選ぶ前の値）', eqPreset: 'custom', gains: GAINS_B },
   // 低音を大きく持ち上げても、リミッターで 0dBFS を超えないこと
   { ...BASE, name: 'プリセット（低音強調）', eqPreset: 'bass' },
   { ...BASE, name: '音量をそろえる（標準）', leveler: true, gains: FLAT },
