@@ -159,6 +159,13 @@ for (const s of listing.screenshots) {
   if (!fs.existsSync(path.join(SCREENSHOTS, s.file))) throw new Error(`スクリーンショットがない: ${s.file}（npm run amo:screenshots で作る）`);
 }
 const addon = await call('GET', `addons/addon/${ADDON}/`);
+// Developer Hub の画面で入れたスクリーンショットの説明は、言語を指定しないで聞くと null になる（2026-11-16 に確かめた）。
+// 日本語の説明は、言語を指定して聞き直したものを使う
+const ja = await call('GET', `addons/addon/${ADDON}/?lang=ja`);
+for (const p of addon.previews) {
+  const caption = ja.previews.find((x) => x.id === p.id)?.caption?.ja;
+  if (caption && !p.caption?.ja) p.caption = { ...p.caption, ja: caption };
+}
 await show(addon, listing);
 if (process.argv[2] === 'apply') {
   await apply(addon, listing, { onlyScreenshots: process.argv[3] === 'screenshots', replace: process.argv[3] === 'replace' });
