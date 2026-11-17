@@ -21,7 +21,7 @@
 ## インストール
 
 - **Firefox**：[Firefox Add-ons（AMO）](https://addons.mozilla.org/ja/firefox/addon/live-audio-enhancer/)で公開しています
-- **Chrome**：Chrome ウェブストアで審査中です
+- **Chrome**：[Chrome ウェブストア](https://chromewebstore.google.com/detail/live-audio-enhancer/nhahbohhloghjjknpgpkbeiojniggccf)で公開しています
 
 開発中の版を読み込むときは、次のようにします。
 
