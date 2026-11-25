@@ -5,15 +5,16 @@
 // video 要素への接続は必ずこのモジュールを経由させる。
 //
 // 接続後はグラフを切らずに、ゲインのクロスフェードでエフェクトの有無を切り替える。
-//   video ─ source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ コンプレッサー ─ compWet ─┬─ リミッター ─ wet ─┬─ output ─ volume ─ destination
-//                   │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────── compDry ─┘                   │
-//                   │ └──────────────────────── nrDry ───┘                                                           │
-//                   └────────────────────────────────────────────────────────────────────────────────────── dry ───┘
+//   video ─ source ─┬─┬─ RNNoise ──────── 方式ごとの wet ─┬─ eqIn ─ EQ ─┬─ agcGain ─ コンプレッサー ─ compTrim ─ compWet ─┬─ リミッター ─ wet ─┬─ output ─ volume ─ destination
+//                   │ ├─ DeepFilterNet3 ─ 方式ごとの wet ─┤             └─────────────────────────────────── compDry ─┘                   │
+//                   │ └──────────────────────── nrDry ───┘                                                                               │
+//                   └────────────────────────────────────────────────────────────────────────────────────────────────────────── dry ───┘
 // プレイヤーの音量は、この拡張に音が届く前にかかっている。音量によってオートEQ や音量をそろえるの効き方が
 // 変わらないよう、source で音量を打ち消してから処理し、volume でかけ直す（耳に届く大きさはプレイヤーの音量どおり）。
 // リミッターは、EQ で持ち上げても 0dBFS を超えて音割れしないように、エフェクト側の経路の最後に常に入れる。
 // EQ は BiquadFilter を帯域の数だけ直列につないだもの。
 // オートEQ のときは、eqIn（EQ に入る前の音）を分析して EQ のゲインを決める。
+// 音量をそろえるのときは、EQ を通った音の大きさを測り、agcGain で音量を上げ下げする（agc.js）。
 // ノイズキャンセルのノードは、その方式を選んだときに作り、使わなくなったら止める。
 // 準備中や作れなかったときは nrDry 側（素通し）にする。
 const AudioGraph = (() => {
@@ -49,21 +50,25 @@ const AudioGraph = (() => {
   // cloneInto（Firefox の content script にだけある関数）でページ側にコピーしてから渡す。Chrome ではそのまま渡す
   const CLONE_INTO = typeof cloneInto === 'function' ? cloneInto : null;
   const toPage = (value) => (CLONE_INTO ? CLONE_INTO(value, window) : value);
-  // 音量をそろえる（コンプレッサー）の強さごとの設定。
-  // DynamicsCompressorNode は圧縮した分に応じて自動で持ち上げる（メイクアップゲイン）ので、大きい音は抑えられ、
-  // 小さい音は大きくなる。1kHz の正弦波で測ると、入力 -50dB / -3dB に対して出力は
-  // 標準 -38.2 / -10.5、強め -31.2 / -15.3 dB で、どちらも 0dBFS は超えなかった
+  // DynamicsCompressorNode は、0dB の入力に対するゲインの逆数の 0.6 乗を、自動のメイクアップゲインとしてかける。
+  // knee が 0 のときの、その大きさ（dB）。直後の GainNode で打ち消し、しきい値より小さい音は変えないようにする
+  const makeupDb = ({ threshold, ratio }) => -0.6 * (threshold - threshold / ratio);
+  // 音量をそろえるの強さごとの設定。
+  // agc：自動音量調整（agc.js）。番組の音の大きさ（数秒の平均）を targetDb に近づける。持ち上げる上限 maxBoostDb、下げる上限 maxCutDb。
+  //   標準と強めの違いは、持ち上げる上限だけにする（ふつうの大きさの配信では同じに聞こえ、小さい配信や静かな場面で差が出る）
+  // compressor：自動音量調整の後ろに置き、目安よりずっと大きい瞬間（大声や効果音）を抑える。メイクアップゲインは compTrim で打ち消す。
+  //   自動音量調整が追いつくまでの数秒のあいだ、急に大きくなった音を抑える役目もある
+  // v0.27 まではコンプレッサーだけで、メイクアップゲインで小さい音を持ち上げていた（標準 threshold -32 knee 12 ratio 4、
+  // 強め threshold -40 knee 10 ratio 8。1kHz の正弦波で、入力 -50dB / -3dB に対して出力は標準 -38.2 / -10.5、強め -31.2 / -15.3 dB）
+  const COMPRESSOR = { threshold: -12, knee: 0, ratio: 3, attack: 0.005, release: 0.25 };
   const LEVELERS = {
-    standard: { threshold: -32, knee: 12, ratio: 4, attack: 0.005, release: 0.25 },
-    strong: { threshold: -40, knee: 10, ratio: 8, attack: 0.003, release: 0.25 },
+    standard: { agc: { targetDb: -20, maxBoostDb: 18, maxCutDb: 12 }, compressor: COMPRESSOR },
+    strong: { agc: { targetDb: -20, maxBoostDb: 30, maxCutDb: 12 }, compressor: COMPRESSOR },
   };
-  // 音割れ防止のリミッター。DynamicsCompressorNode をリミッターとして使う。
-  // この Node は、0dB の入力に対するゲインの逆数の 0.6 乗を自動のメイクアップゲインとしてかけるので、
-  // 直後の GainNode で打ち消し、しきい値より小さい音は変えないようにする（この設定では 1.71dB）。
+  // 音割れ防止のリミッター。DynamicsCompressorNode をリミッターとして使い、メイクアップゲインは limiterTrim で打ち消す（この設定では 1.71dB）。
   // 100Hz の正弦波で測ると、+12dB の入力でも -1.95dBFS、-30dB から +12dB に跳ね上がる音でも -1.35dBFS に収まった
   // （しきい値を -1dB にすると、跳ね上がる音で +0.4dBFS になった）
   const LIMITER = { threshold: -3, knee: 0, ratio: 20, attack: 0, release: 0.1 };
-  const LIMITER_MAKEUP_DB = -0.6 * (LIMITER.threshold - LIMITER.threshold / LIMITER.ratio);
 
   let ctx = null;
   let running = null;
@@ -269,13 +274,15 @@ const AudioGraph = (() => {
     });
     const nrDry = c.createGain();
     const eqIn = c.createGain();
+    const agcGain = c.createGain();
     const compressor = c.createDynamicsCompressor();
+    const compTrim = c.createGain();
     const compWet = c.createGain();
     const compDry = c.createGain();
     const limiter = c.createDynamicsCompressor();
     for (const [key, value] of Object.entries(LIMITER)) limiter[key].value = value;
     const limiterTrim = c.createGain();
-    limiterTrim.gain.value = 10 ** (-LIMITER_MAKEUP_DB / 20);
+    limiterTrim.gain.value = 10 ** (-makeupDb(LIMITER) / 20);
     const wet = c.createGain();
     const dry = c.createGain();
     const output = c.createGain();
@@ -285,7 +292,7 @@ const AudioGraph = (() => {
     eqIn.connect(filters[0]);
     // connect() は接続先を返すので、reduce で直列につなげる
     const eqOut = filters.reduce((from, to) => from.connect(to));
-    eqOut.connect(compressor).connect(compWet).connect(limiter);
+    eqOut.connect(agcGain).connect(compressor).connect(compTrim).connect(compWet).connect(limiter);
     eqOut.connect(compDry).connect(limiter);
     limiter.connect(limiterTrim).connect(wet);
     wet.connect(output);
@@ -293,9 +300,10 @@ const AudioGraph = (() => {
     dry.connect(output);
     output.connect(volume).connect(c.destination);
     // engines: 方式名 -> { node, wet, from }。ノードは準備ができるまで null。
-    // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）
+    // auto: オートEQ の分析（オートEQ がオンのあいだだけ動かす）。agc: 自動音量調整（音量をそろえるがオンのあいだだけ動かす）
     return {
-      element, source, nrDry, eqIn, filters, compressor, compWet, compDry, limiter, wet, dry, output, volume, engines: {}, auto: null,
+      element, source, nrDry, eqIn, filters, eqOut, agcGain, compressor, compTrim, compWet, compDry, limiter, wet, dry, output, volume,
+      engines: {}, auto: null, agc: null,
     };
   }
 
@@ -337,6 +345,16 @@ const AudioGraph = (() => {
     });
   }
 
+  // 自動音量調整は、音量をそろえるがオンのあいだだけ動かす（強さを変えたときは、次の測定から新しい強さの値を使う）
+  function applyAgc(g) {
+    if (settings.leveler) {
+      g.agc ??= Agc.create(g.source.context, g.eqOut, g.agcGain.gain, () => LEVELERS[settings.levelerStrength].agc);
+      return;
+    }
+    g.agc?.stop();
+    g.agc = null;
+  }
+
   // 設定をグラフに反映する。接続直後は ramp を false にして即座に反映する
   function apply(g, ramp) {
     const now = g.source.context.currentTime;
@@ -360,8 +378,10 @@ const AudioGraph = (() => {
     for (const engine of Object.values(g.engines)) set(engine.wet.gain, engine === using ? 1 : 0, using?.from);
     set(g.nrDry.gain, using ? 0 : 1, using?.from);
     const leveler = settings.leveler ? LEVELERS[settings.levelerStrength] : null;
+    applyAgc(g);
     if (leveler) {
-      for (const [key, value] of Object.entries(leveler)) set(g.compressor[key], value);
+      for (const [key, value] of Object.entries(leveler.compressor)) set(g.compressor[key], value);
+      set(g.compTrim.gain, 10 ** (-makeupDb(leveler.compressor) / 20));
     }
     set(g.compWet.gain, leveler ? 1 : 0);
     set(g.compDry.gain, leveler ? 0 : 1);
@@ -419,12 +439,14 @@ const AudioGraph = (() => {
     for (const g of live) apply(g, true);
   }
 
-  // ポップアップに見せる状態。オートEQ の分析が済んでいるかと、今の補正量
+  // ポップアップに見せる状態。オートEQ の分析が済んでいるかと今の補正量、自動音量調整の平均の大きさと今の音量
   function status() {
     const auto = latest?.auto;
+    const agc = latest?.agc;
     return {
       connected: !!latest,
       autoEq: auto ? { ready: auto.ready(), gains: auto.gains() } : null,
+      agc: agc ? { levelDb: agc.levelDb(), gainDb: agc.gainDb() } : null,
     };
   }
 

@@ -32,8 +32,12 @@ const FLAT = GAINS_A.map(() => 0);
 const BASE = {
   enabled: true, denoise: false, engine: 'rnnoise', leveler: false, levelerStrength: 'standard', eq: true, autoEq: false,
 };
-// 音量をそろえるの強さごとのしきい値（dB、extension/audio/audio-graph.js の LEVELERS と同じ値）
-const LEVELER_THRESHOLDS = { standard: -32, strong: -40 };
+// 音量をそろえるの強さごとの設定（extension/audio/audio-graph.js の LEVELERS と同じ値）。
+// agc は自動音量調整の目安の大きさと上げ下げの上限（dB）、compressor はその後ろのコンプレッサー
+const LEVELERS = {
+  standard: { agc: { targetDb: -20, maxBoostDb: 18, maxCutDb: 12 }, compressor: { threshold: -12, ratio: 3 } },
+  strong: { agc: { targetDb: -20, maxBoostDb: 30, maxCutDb: 12 }, compressor: { threshold: -12, ratio: 3 } },
+};
 // オートEQ の補正の上限（extension/audio/auto-eq.js と同じ値）。帯域ごとの持ち上げる上限は、
 // 31Hz・62Hz・16kHz は持ち上げない、125Hz・8kHz は半分（BOOST_SCALE と同じ）
 const AUTO_LIMIT = 12;
@@ -55,7 +59,8 @@ const SCENARIOS = [
   { ...BASE, name: 'カスタムに戻す（プリセットを選ぶ前の値）', eqPreset: 'custom', gains: GAINS_B },
   // 低音を大きく持ち上げても、リミッターで 0dBFS を超えないこと
   { ...BASE, name: 'プリセット（低音強調）', eqPreset: 'bass' },
-  { ...BASE, name: '音量をそろえる（標準）', leveler: true, gains: FLAT },
+  // 自動音量調整は、音が 1 秒たまってから音量を変え始めるので、少し長めに待つ
+  { ...BASE, name: '音量をそろえる（標準）', leveler: true, gains: FLAT, wait: 4000 },
   { ...BASE, name: '音量をそろえる（強め）', leveler: true, levelerStrength: 'strong', gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（RNNoise）', denoise: true, gains: FLAT },
   { ...BASE, name: 'ノイズキャンセル有効（DeepFilterNet3）', denoise: true, engine: 'deepfilternet', gains: FLAT, wait: 5000 },
@@ -161,9 +166,11 @@ const INSTALL_PROBE = `(async () => {
         engines: Object.fromEntries(Object.entries(g.engines).map(([k, e]) => [k, { ready: !!e.node, wet: e.wet.gain.value }])),
         comp: {
           wet: g.compWet.gain.value, dry: g.compDry.gain.value,
-          threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value,
+          threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value, trim: g.compTrim.gain.value,
           maxReduction: reduction, // 測定中に最も強く圧縮したときの量（dB、0 以下）
         },
+        // 自動音量調整。levelDb は平均の大きさ、gainDb はかけようとしている音量、actualDb は今実際にかかっている音量
+        agc: g.agc ? { levelDb: g.agc.levelDb(), gainDb: g.agc.gainDb(), actualDb: 20 * Math.log10(g.agcGain.gain.value) } : null,
         limiter: { maxReduction: limiterReduction },
         // オートEQ の分析結果。levels は EQ に入る前の帯域ごとの平均レベル、target は目安の形
         auto: g.auto ? { ready: g.auto.ready(), gains: g.auto.gains(), levels: g.auto.levels(), target: AutoEq.TARGET } : null,
@@ -449,12 +456,23 @@ function judgeRun({ scenario, m, locked, manualEditable }) {
   if (!near(p.comp.wet, scenario.leveler ? 1 : 0, 0.01) || !near(p.comp.dry, scenario.leveler ? 0 : 1, 0.01)) {
     return { ok: false, reason: 'compWet / compDry のゲインが設定と違う' };
   }
-  if (scenario.leveler && !near(p.comp.threshold, LEVELER_THRESHOLDS[scenario.levelerStrength], 0.01)) {
-    return { ok: false, reason: '音量をそろえるの強さが設定と違う' };
-  }
-  // しきい値より十分大きい音が来ているのに圧縮していなければ、コンプレッサーを通っていない
-  if (scenario.leveler && m.inRmsDb > LEVELER_THRESHOLDS[scenario.levelerStrength] + 6 && p.comp.maxReduction > -0.5) {
-    return { ok: false, reason: '音量をそろえるが効いていない（大きい音が来ているのに圧縮していない）' };
+  if (!scenario.leveler && p.agc) return { ok: false, reason: '自動音量調整が止まっていない' };
+  if (scenario.leveler) {
+    const { agc, compressor } = LEVELERS[scenario.levelerStrength];
+    if (!near(p.comp.threshold, compressor.threshold, 0.01) || !near(p.comp.ratio, compressor.ratio, 0.01)) {
+      return { ok: false, reason: '音量をそろえるの強さが設定と違う' };
+    }
+    // コンプレッサーの自動の持ち上げ（knee 0 のとき、0dB の入力に対するゲインの逆数の 0.6 乗）を打ち消しているか
+    const makeup = -0.6 * (compressor.threshold - compressor.threshold / compressor.ratio);
+    if (!near(20 * Math.log10(p.comp.trim), -makeup, 0.05)) return { ok: false, reason: 'コンプレッサーの自動の持ち上げを打ち消していない' };
+    if (!p.agc) return { ok: false, reason: '自動音量調整が動いていない' };
+    if (p.agc.levelDb === null && m.inRmsDb < -60) return { ok: false, skip: true, reason: '音がほとんどなく、自動音量調整が音の大きさを測れない' };
+    if (p.agc.levelDb === null) return { ok: false, reason: '自動音量調整が音の大きさを測れていない' };
+    const expected = Math.min(agc.maxBoostDb, Math.max(-agc.maxCutDb, agc.targetDb - p.agc.levelDb));
+    // 平均の大きさと音量は別の瞬間に読むので、少しの差は許す
+    if (!near(p.agc.gainDb, expected, 1)) return { ok: false, reason: '自動音量調整の音量が、平均の大きさに合っていない' };
+    // 実際の音量は、時定数 0.3〜1.5 秒で追いかける。測っているあいだに平均の大きさが動くこともあるので、3dB までの差は許す
+    if (!near(p.agc.actualDb, p.agc.gainDb, 3)) return { ok: false, reason: '自動音量調整の音量が、実際にはかかっていない' };
   }
   const judged = m.bands.filter((b) => b.expectedDb !== null && b.measuredDb !== null);
   if (judged.some((b) => Math.abs(b.measuredDb - b.expectedDb) > TOLERANCE_DB)) {
@@ -511,6 +529,9 @@ function report(r, j) {
     const engines = Object.entries(p.engines).map(([k, e]) => `${k} ${e.ready ? e.wet.toFixed(2) : '準備中'}`).join(' ') || 'なし';
     console.log(`    パラメータ: ゲイン ${p.gains.map(f).join(', ')} dB　wet ${p.wet.toFixed(2)} dry ${p.dry.toFixed(2)}　nrDry ${p.nrDry.toFixed(2)}　ノイズキャンセル ${engines}`);
     console.log(`    コンプレッサー: compWet ${p.comp.wet.toFixed(2)} compDry ${p.comp.dry.toFixed(2)}　threshold ${p.comp.threshold.toFixed(0)}dB ratio ${p.comp.ratio.toFixed(0)}　最大圧縮量 ${p.comp.maxReduction.toFixed(1)}dB　リミッターの最大圧縮量 ${p.limiter.maxReduction.toFixed(1)}dB`);
+    if (p.agc) {
+      console.log(`    自動音量調整: 平均の大きさ ${p.agc.levelDb === null ? '（測定中）' : `${p.agc.levelDb.toFixed(1)}dB`}　音量 ${f(p.agc.gainDb)}dB（今 ${f(p.agc.actualDb)}dB）　出口 − 入口 ${f(m.outRmsDb === null || m.inRmsDb === null ? null : m.outRmsDb - m.inRmsDb)}dB`);
+    }
     if (p.auto?.levels) {
       // 目安の形（中域の平均で高さを合わせたもの）からの、帯域ごとのずれ。もともと音がない帯域（-24dB 未満）は大きさの計算から除く
       const { levels, target, gains } = p.auto;

@@ -4,7 +4,8 @@
 //
 // Firefox では、タブのミュートや動画の音量が Web Audio に入る手前でかかるので、ミュートせず動画の音量を 0.01 にして測る
 // （スピーカーからはほぼ聞こえない）。拡張の中ではプレイヤーの音量を打ち消すので、処理は音量 100% と同じ大きさで行われる。
-// オートEQ・音量をそろえる・全体の無効は、Chrome の検証（tools/verify.js）で確かめていて、ここではまだ確かめていない。
+// オートEQ・全体の無効は、Chrome の検証（tools/verify.js）で確かめていて、ここではまだ確かめていない。
+// 音量をそろえるは、標準で自動音量調整が動いているかだけを確かめる。
 //
 // 使い方:
 //   npm run verify:firefox -- <nico / kick / youtube / twitch / tver / abema>   サイトのページから配信を選んで試す
@@ -23,6 +24,8 @@ const MAX_TRIES = 5;
 const TOLERANCE_DB = 1.5;
 const VIDEO_VOLUME = 0.01;
 const GAINS = [0, -6, 0, 0, 0, 0, 0, 4, 0, -3];
+// 音量をそろえる（標準）の設定（extension/audio/audio-graph.js の LEVELERS と同じ値）
+const LEVELER = { targetDb: -20, maxBoostDb: 18, maxCutDb: 12, threshold: -12, ratio: 3 };
 
 // テスト用 content script を足した拡張のコピーを作る。
 // WebDriver BiDi では拡張の内部 URL（moz-extension://）を開けないので、
@@ -90,6 +93,22 @@ function judgeEngine(m, name) {
   return { ok: true };
 }
 
+function judgeLeveler(m) {
+  if (m.error || m.attached === false) return { ng: m.error ?? '接続されていない' };
+  if (!near(m.comp.wet, 1, 0.01) || !near(m.comp.threshold, LEVELER.threshold, 0.01) || !near(m.comp.ratio, LEVELER.ratio, 0.01)) {
+    return { ng: 'コンプレッサーが設定どおりでない' };
+  }
+  if (!m.agc) return { ng: '自動音量調整が動いていない' };
+  const skip = unmeasurable(m);
+  if (skip) return { skip };
+  if (m.agc.levelDb === null) return { ng: '自動音量調整が音の大きさを測れていない' };
+  const expected = Math.min(LEVELER.maxBoostDb, Math.max(-LEVELER.maxCutDb, LEVELER.targetDb - m.agc.levelDb));
+  // 平均の大きさと音量は別の瞬間に読むので、少しの差は許す
+  if (!near(m.agc.gainDb, expected, 1)) return { ng: '自動音量調整の音量が、平均の大きさに合っていない' };
+  if (!near(m.agc.actualDb, m.agc.gainDb, 3)) return { ng: '自動音量調整の音量が、実際にはかかっていない' };
+  return { ok: true };
+}
+
 async function check(browser, url) {
   const page = await browser.newPage();
   try {
@@ -138,6 +157,9 @@ async function check(browser, url) {
     results.push(['ノイズキャンセル（RNNoise）', rnnoise, judgeEngine(rnnoise, 'rnnoise')]);
     const dfn = await probe(page, 'measure', { settings: { denoise: true, engine: 'deepfilternet' }, wait: 5000 });
     results.push(['ノイズキャンセル（DeepFilterNet3）', dfn, judgeEngine(dfn, 'deepfilternet')]);
+    // 自動音量調整は、音が 1 秒たまってから音量を変え始めるので、少し長めに待つ
+    const leveler = await probe(page, 'measure', { settings: { leveler: true, eqPreset: 'custom', gains: GAINS }, wait: 4000 });
+    results.push(['音量をそろえる（標準）', leveler, judgeLeveler(leveler)]);
 
     // ポップアップ：プリセットを選ぶと EQ に入るか、配信のタブに状態を問い合わせられるか。
     // ポップアップの画面は、テスト用のバックグラウンドスクリプトが拡張の起動時にタブで開いている。
@@ -173,7 +195,9 @@ async function check(browser, url) {
     results.push(['ポップアップ', { ...popupResult, gains: afterPreset.gains }, popupJudge]);
 
     const limiter = await probe(page, 'limiter');
-    results.push(['リミッター', limiter, near(limiter.makeupDb, 1.71, 0.05) && limiter.peakFor12dB < -1
+    // 音量をそろえるのコンプレッサーのメイクアップゲインは、Chrome と同じ式（knee 0 のとき、-0.6 ×（threshold − threshold / ratio））で打ち消している
+    const levelerMakeup = -0.6 * (LEVELER.threshold - LEVELER.threshold / LEVELER.ratio);
+    results.push(['リミッター', limiter, near(limiter.makeupDb, 1.71, 0.05) && limiter.peakFor12dB < -1 && near(limiter.levelerMakeupDb, levelerMakeup, 0.05)
       ? { ok: true } : { ng: 'メイクアップゲインか、大きい入力に対するピークが Chrome と違う' }]);
     return { url, title, src: attach.src, results };
   } catch (e) {
@@ -194,7 +218,8 @@ function report(r) {
     if (m.peakIn !== undefined) console.log(`    ピーク: 入口 ${db(m.peakIn)} → 出口 ${db(m.peakOut)}　ゲイン ${m.gains.join(', ')}　ノイズキャンセル ${JSON.stringify(m.engines)}`);
     if (m.bands) console.log(`    出口 − 入口: ${m.bands.map((b) => `${b.hz}Hz 期待 ${b.expectedDb} 実測 ${b.measuredDb ?? '-'}`).join(' / ')}`);
     if (name === 'ポップアップ') console.log(`    選択肢 ${m.options} 個　問い合わせ ${m.connected ? 'OK' : 'NG'}　ニュースを選んだ後のゲイン ${m.gains.join(', ')}`);
-    if (name === 'リミッター') console.log(`    メイクアップゲイン ${m.makeupDb}dB　+12dB の入力に対する出力 ${m.peakFor12dB}dBFS`);
+    if (name === 'リミッター') console.log(`    メイクアップゲイン ${m.makeupDb}dB　+12dB の入力に対する出力 ${m.peakFor12dB}dBFS　音量をそろえるのコンプレッサーのメイクアップゲイン ${m.levelerMakeupDb}dB`);
+    if (m.agc) console.log(`    自動音量調整: 平均の大きさ ${m.agc.levelDb ?? '（測定中）'}dB　音量 ${m.agc.gainDb}dB（今 ${m.agc.actualDb}dB）`);
     if (m.error) console.log(`    エラー: ${m.error}`);
   }
 }

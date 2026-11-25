@@ -81,14 +81,24 @@ const PROBE_COMMANDS = {
       gains: g.filters.map((f) => round1(f.gain.value)),
       wet: round1(g.wet.gain.value), nrDry: round1(g.nrDry.gain.value),
       engines: Object.fromEntries(Object.entries(g.engines).map(([k, e]) => [k, { ready: !!e.node, wet: round1(e.wet.gain.value) }])),
+      comp: { wet: round1(g.compWet.gain.value), threshold: g.compressor.threshold.value, ratio: g.compressor.ratio.value },
+      // 自動音量調整。levelDb は平均の大きさ、gainDb はかけようとしている音量、actualDb は今実際にかかっている音量
+      agc: g.agc ? {
+        levelDb: g.agc.levelDb() === null ? null : round1(g.agc.levelDb()),
+        gainDb: round1(g.agc.gainDb()),
+        actualDb: round1(20 * Math.log10(g.agcGain.gain.value)),
+      } : null,
       bands: probes.map((p, k) => ({ hz: p, expectedDb: round1(expected[k]), measuredDb: diff[k].c ? round1(diff[k].d / diff[k].c) : null })),
     };
   },
 
-  // リミッターと同じ設定で、メイクアップゲインの量と、大きい入力に対する出力のピークを測る（OfflineAudioContext）
+  // リミッターと同じ設定で、メイクアップゲインの量と、大きい入力に対する出力のピークを測る（OfflineAudioContext）。
+  // 音量をそろえるのコンプレッサーの設定でも、メイクアップゲインの量を測る
   async limiter() {
     const SR = 48000;
-    const render = async (inDb, trimDb) => {
+    const LIMITER = { threshold: -3, knee: 0, ratio: 20, attack: 0, release: 0.1 };
+    const COMPRESSOR = { threshold: -12, knee: 0, ratio: 3, attack: 0.005, release: 0.25 };
+    const render = async (inDb, trimDb, settings = LIMITER) => {
       const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: SR * 2, sampleRate: SR });
       const buf = ctx.createBuffer(1, SR * 2, SR);
       const d = buf.getChannelData(0);
@@ -96,7 +106,7 @@ const PROBE_COMMANDS = {
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const lim = ctx.createDynamicsCompressor();
-      for (const [k, v] of Object.entries({ threshold: -3, knee: 0, ratio: 20, attack: 0, release: 0.1 })) lim[k].value = v;
+      for (const [k, v] of Object.entries(settings)) lim[k].value = v;
       const trim = ctx.createGain();
       trim.gain.value = 10 ** (-trimDb / 20);
       src.connect(lim).connect(trim).connect(ctx.destination);
@@ -106,8 +116,9 @@ const PROBE_COMMANDS = {
       for (let i = SR / 2; i < out.length; i++) p = Math.max(p, Math.abs(out[i]));
       return Math.round(20 * Math.log10(p) * 100) / 100;
     };
-    const makeupDb = (await render(-40, 0)) + 40;
-    return { makeupDb, peakFor12dB: await render(12, makeupDb) };
+    const makeupOf = async (settings) => Math.round(((await render(-40, 0, settings)) + 40) * 100) / 100;
+    const makeupDb = await makeupOf(LIMITER);
+    return { makeupDb, peakFor12dB: await render(12, makeupDb), levelerMakeupDb: await makeupOf(COMPRESSOR) };
   },
 };
 
