@@ -85,8 +85,8 @@
 - オートEQの目安の形の調整（話し声向けの1つ。聞いて調整する前提の値。「オートEQ」を参照）
 - プリセットの値の調整：今の値は聞いて調整する前提の初期値
 - 音量をそろえるの自動音量調整：使いながら、目安の大きさ・上限・速さを調整する（「音量をそろえる」の「使いながら確かめること」）
-- Firefoxのストア（AMO）：審査の結果を待つ。公開されたら、アイコン・スクリーンショット・英語の説明を入れる（「ストアでの公開」を参照）
-- Chromeウェブストア：v0.27.0を公開中（https://chromewebstore.google.com/detail/live-audio-enhancer/nhahbohhloghjjknpgpkbeiojniggccf ）。セーフブラウジングの「信頼されていません」の表示が消えるのを待つ（下の「Chromeウェブストア」を参照）
+- Firefoxのストア（AMO）：v0.28.0を公開中（「ストアでの公開」を参照）
+- Chromeウェブストア：v0.27.0を公開中（https://chromewebstore.google.com/detail/live-audio-enhancer/nhahbohhloghjjknpgpkbeiojniggccf ）。v0.28.0を2026-11-25に提出し、審査の結果を待つ。セーフブラウジングの「信頼されていません」の表示が消えるのを待つ（下の「Chromeウェブストア」を参照）
 
 ### 使い方
 
@@ -849,7 +849,7 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
 
 - ストアの文章は`docs/amo/listing.md`、審査担当者へのメモは`docs/amo/reviewer-notes.md`（3000文字まで）
 - ストアの既定の言語は日本語（提出後にAMOのAPIで確かめた）
-- **公開の経過**：v0.22.0を2026-11-11に提出し、2026-11-16までに公開された（https://addons.mozilla.org/ja/firefox/addon/live-audio-enhancer/ ）。v0.27.0を2026-11-16 10:40に提出し、約6分後に自動で公開された（人の審査には回らなかった）
+- **公開の経過**：v0.22.0を2026-11-11に提出し、2026-11-16までに公開された（https://addons.mozilla.org/ja/firefox/addon/live-audio-enhancer/ ）。v0.27.0を2026-11-16 10:40に提出し、約6分後に自動で公開された（人の審査には回らなかった）。v0.28.0も、2026-11-25 9:21ごろに提出し、約7分後に自動で公開された
 - **ストアのページの更新**：`npm run listing:firefox`（`tools/amo-listing.js`）。名前・要約・説明（日本語と英語）、アイコン、スクリーンショットとその説明（日本語と英語）を、`docs/amo/listing.md`と画像に合わせて、AMOのAPIで書き換える
   - そのまま実行すると、今のページと書き換える内容を表示するだけ。`npm run listing:firefox -- apply`で書き換える
   - スクリーンショットは、今載っているものをすべて消してから、`listing.md`の表の順に載せ直す
@@ -872,7 +872,7 @@ Chromeウェブストアの音声系の拡張を調べた。主な38件は、パ
 
 - 提出用のZIPは`npm run pack:chrome`で作る。ストアの文章、プライバシーの欄の回答、テストの手順、画像は`docs/cws/`（`docs/cws/listing.md`）
 - 提出の前に、ダッシュボードで公開できる数の上限を確かめる（2026-08から上限がある）
-- **公開の経過**：v0.27.0を2026-11-16に提出した（初めての提出）。同じ日に、説明の対応サイトの一覧（「ニコニコ生放送、YouTube、Twitch、Kick、TVer、ABEMA」）がキーワードスパム（Yellow Argon）として却下された。対応サイトは利用者にとって大事な情報なので、開発者が同じ日に異議申し立てをし、2026-11-17までに公開された（ストアのページ：https://chromewebstore.google.com/detail/live-audio-enhancer/nhahbohhloghjjknpgpkbeiojniggccf 、アイテムID：nhahbohhloghjjknpgpkbeiojniggccf）。代わりの文（サイト名を書かない形）は`docs/cws/listing.md`の「異議が通らなかったときの文」に残してある
+- **公開の経過**：v0.27.0を2026-11-16に提出した（初めての提出）。同じ日に、説明の対応サイトの一覧（「ニコニコ生放送、YouTube、Twitch、Kick、TVer、ABEMA」）がキーワードスパム（Yellow Argon）として却下された。対応サイトは利用者にとって大事な情報なので、開発者が同じ日に異議申し立てをし、2026-11-17までに公開された（ストアのページ：https://chromewebstore.google.com/detail/live-audio-enhancer/nhahbohhloghjjknpgpkbeiojniggccf 、アイテムID：nhahbohhloghjjknpgpkbeiojniggccf）。代わりの文（サイト名を書かない形）は`docs/cws/listing.md`の「異議が通らなかったときの文」に残してある。v0.28.0は2026-11-25に提出した（ストアの文章と画像は変えていない）
 - **セーフブラウジングの表示**：Chromeで「保護強化機能」（Enhanced Safe Browsing）をオンにしている人がストアで入れるとき、「この拡張機能は、保護強化機能で信頼されていません」という案内が出る（2026-11-17に開発者が確かめた）
   - 拡張の作りでは直せない。Googleの説明では、ストアの決まりを守っている開発者の拡張が「信頼済み」になり、新しい開発者はたいてい数か月かかる（https://support.google.com/chrome_webstore/answer/2664769 ）。公式には開発者ごとの判断だが、長く公開している開発者でも新しい拡張には最初この表示が出たという報告がある（https://groups.google.com/a/chromium.org/g/chromium-extensions/c/3g8tu00by2g ）
   - 決まりを守り続けて待つ。利用者は案内が出ても「続行」で入れられる
